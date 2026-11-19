@@ -332,6 +332,22 @@ cli_commands! {
     delete_backup: Destructive, "Delete a backup (must be inside the backups folder)", { path: String } => |a| res(crate::delete_backup(app()?, a.path));
     run_winget_upgrade: Destructive, "Upgrade CoolDesk through winget (the app restarts)", {} => |a| res(crate::run_winget_upgrade());
     install_native_update: Destructive, "Download and install the pending update (the app restarts)", {} => |a| res(crate::install_native_update(app()?).await);
+
+    // ── P2.9 vault ──
+    // Everything that reveals, changes, or unlocks secrets is `secret`: it
+    // needs confirm, it will be kept out of MCP, and its args are never logged.
+    vault_status: Read, "Vault enabled / exists / unlocked", {} => |a| val(crate::vault::vault_status(app()?));
+    vault_generate: Read, "Generate a random password (nothing is stored)", { length: Option<usize>, symbols: Option<bool> } => |a| val(crate::vault::vault_generate(a.length, a.symbols));
+    vault_lock: Act, "Lock the vault", {} => |a| val(crate::vault::vault_lock(app()?));
+    vault_list: Secret, "Entry summaries: title, username, url (unlocked vault)", {} => |a| res(crate::vault::vault_list());
+    vault_get: Secret, "A full entry, password included (unlocked vault)", { id: String } => |a| res(crate::vault::vault_get(a.id));
+    vault_copy: Secret, "Copy an entry's field to the clipboard (auto-clears)", { id: String, field: String } => |a| res(crate::vault::vault_copy(a.id, a.field));
+    vault_unlock: Secret, "Unlock with the master password", { master: String } => |a| res(crate::vault::vault_unlock(app()?, a.master).await);
+    vault_create: Secret, "Create the vault with a master password", { master: String } => |a| res(crate::vault::vault_create(app()?, a.master).await);
+    vault_change_master: Secret, "Change the master password", { current: String, next: String } => |a| res(crate::vault::vault_change_master(app()?, a.current, a.next).await);
+    vault_save: Secret, "Add or update an entry; entry = {id?, title, username?, password?, url?, notes?}", { entry: crate::vault::EntryInput } => |a| res(crate::vault::vault_save(app()?, a.entry));
+    vault_delete: Secret, "Delete an entry", { id: String } => |a| res(crate::vault::vault_delete(app()?, a.id));
+    vault_set_enabled: Secret, "Turn the vault feature on or off", { enabled: bool } => |a| res(crate::vault::vault_set_enabled(app()?, a.enabled));
 }
 
 /// Commands the CLI has that aren't IPC commands (the parity test skips them).
@@ -423,7 +439,24 @@ mod tests {
     /// Commands whose args include a structured object. They can't be
     /// sampled generically, so they're listed here; a new one fails the test until
     /// it's added.
-    const OBJECT_ARG_COMMANDS: &[&str] = &[];
+    const OBJECT_ARG_COMMANDS: &[&str] = &["vault_save"];
+
+    #[test]
+    fn vault_save_entry_parses() {
+        assert!(check_args("vault_save", json!({ "entry": { "title": "t" } })).is_ok());
+        assert!(check_args("vault_save", json!({ "entry": { "title": "t", "id": "x", "password": "p", "url": "u", "username": "n", "notes": "" } })).is_ok());
+        assert!(matches!(check_args("vault_save", json!({ "entry": {} })), Err(InvokeError::BadArgs(_))), "title is required");
+    }
+
+    #[test]
+    fn everything_that_touches_secrets_is_secret_tier() {
+        for n in ["vault_list", "vault_get", "vault_copy", "vault_unlock", "vault_create", "vault_change_master", "vault_save", "vault_delete", "vault_set_enabled"] {
+            assert_eq!(spec(n).map(|s| s.tier), Some(Tier::Secret), "{n}");
+        }
+        // The only vault commands outside `secret` reveal nothing and store nothing.
+        let others: Vec<_> = specs().iter().filter(|c| c.name.starts_with("vault_") && c.tier != Tier::Secret).map(|c| c.name).collect();
+        assert_eq!(others, ["vault_status", "vault_generate", "vault_lock"]);
+    }
 
     fn sample(ty: &str) -> Option<Value> {
         Some(match ty {

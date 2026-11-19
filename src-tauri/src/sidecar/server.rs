@@ -19,6 +19,15 @@ use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
 const PORT: u16 = 4545;
+
+/// Testing override only (`COOLDESK_SIDECAR_PORT`). The browser extension and
+/// the frontend shim still expect 4545, so a production run never sets it.
+fn port() -> u16 {
+    std::env::var("COOLDESK_SIDECAR_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(PORT)
+}
 // Max size of a single inbound WebSocket message. Real sync payloads are batched
 // JSON (notes/urls/tabs as arrays) and stay well under this; the cap bounds the
 // memory a single frame can force the server to allocate.
@@ -292,6 +301,16 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Syn
         .route("/llm/v3/status", get(v3_status))
         .route("/llm/v3/config", get(v3_get_config).post(v3_save_config));
 
+    // Token-gated CLI namespace (cli_auth.rs). Not mounted at all if the
+    // token can't be created.
+    // The token file is only written after the bind succeeds, so its existence
+    // means a live server holds the matching token.
+    let cli = crate::sidecar::cli_auth::prepare();
+    let app = match &cli {
+        Some((router, _)) => app.merge(router.clone()),
+        None => app,
+    };
+
     let app = app
         // Feedback/RL endpoints
         .route("/feedback/event", post(feedback_record_event))
@@ -313,10 +332,13 @@ pub async fn start_server() -> Result<(), Box<dyn std::error::Error + Send + Syn
         .layer(cors)
         .with_state(state);
 
-    let addr = format!("127.0.0.1:{}", PORT);
+    let addr = format!("127.0.0.1:{}", port());
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
     log::info!("[Sidecar] Server running on http://{}", addr);
 
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    if let Some((_, pending)) = cli {
+        pending.persist();
+    }
     axum::serve(listener, app).await?;
 
     Ok(())

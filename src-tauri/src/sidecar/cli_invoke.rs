@@ -1,19 +1,24 @@
 //! `/cli/commands` and `/cli/invoke`: one dispatch table that lets the CLI
 //! (and, later, MCP) call the same Rust functions the UI calls over Tauri IPC.
 //!
-//! * Command names are the IPC command names, so a parity check against
-//!   `generate_handler!` can match them one to one.
-//! * Every command carries a danger tier. `destructive` commands are refused
-//!   with 428 unless the request says `"confirm": true`. The check happens
-//!   before the args are parsed or anything runs.
-//! * Parsing (`parse_call`) is separate from execution (`execute`), so the
-//!   manifest-vs-args agreement can be tested without launching anything.
-//! * Only these routes are reachable through `cli_auth`'s token middleware.
+//! * Each command is declared ONCE in the `cli_commands!` table below: name,
+//!   tier, summary, typed args, call. The manifest's arg list, the
+//!   `deny_unknown_fields` struct the request is parsed into, and the dispatch
+//!   arm are all generated from that one declaration, so they can't drift.
+//! * Command names are the IPC command names. `CLI_EXCLUDED` names every IPC
+//!   command left out, with the reason, and the parity test fails if a command
+//!   in `generate_handler!` is in neither list.
+//! * Arg names are the Rust parameter names (snake_case). Tauri's JS bridge
+//!   uses camelCase, and the CLI doesn't go through that bridge.
+//! * Tiers: `destructive` and `secret` commands are refused with 428 unless the
+//!   request says `"confirm": true`. The check happens before the args are
+//!   parsed or anything runs. `secret` (the vault) will also be kept out of MCP.
+//! * Only reachable through `cli_auth`'s token middleware.
 
 use axum::{http::StatusCode, response::IntoResponse, response::Response, Json};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 
@@ -27,18 +32,28 @@ pub fn set_app_handle(handle: tauri::AppHandle) {
 pub enum Tier {
     /// No side effects.
     Read,
-    /// Launches, focuses or opens something. Nothing is lost.
+    /// Launches, focuses, opens, adds or toggles something. Nothing is lost.
     Act,
-    /// Closes, kills, or runs an arbitrary command. Needs `confirm: true`.
+    /// Closes, kills, deletes, runs arbitrary input, or changes a security
+    /// setting. Needs `confirm: true`.
     Destructive,
+    /// Touches the password vault. Needs `confirm: true`. Kept out of MCP.
+    Secret,
+}
+
+impl Tier {
+    pub fn needs_confirm(self) -> bool {
+        matches!(self, Tier::Destructive | Tier::Secret)
+    }
 }
 
 #[derive(Serialize, Debug)]
 pub struct ArgSpec {
     pub name: &'static str,
-    /// `string`, `u32`, `i64`, `usize` or `string[]`.
+    /// `string`, `string[]`, `bool`, `u16`, `u32`, `usize`, `i32`, `i64`, `f64`,
+    /// `json` (any JSON value) or `object` (a structured object; see the summary).
     #[serde(rename = "type")]
-    pub ty: &'static str,
+    pub ty: String,
     pub required: bool,
 }
 
@@ -47,117 +62,31 @@ pub struct CommandSpec {
     pub name: &'static str,
     pub tier: Tier,
     pub summary: &'static str,
-    pub args: &'static [ArgSpec],
+    pub args: Vec<ArgSpec>,
 }
 
-const fn req(name: &'static str, ty: &'static str) -> ArgSpec {
-    ArgSpec { name, ty, required: true }
-}
-const fn opt(name: &'static str, ty: &'static str) -> ArgSpec {
-    ArgSpec { name, ty, required: false }
-}
-
-pub const COMMANDS: &[CommandSpec] = &[
-    // ── read ──
-    CommandSpec { name: "get_running_apps", tier: Tier::Read, summary: "Running apps with their windows", args: &[] },
-    CommandSpec { name: "get_installed_apps", tier: Tier::Read, summary: "Installed and running apps", args: &[] },
-    CommandSpec { name: "get_focused_app", tier: Tier::Read, summary: "The app that has OS focus", args: &[] },
-    CommandSpec { name: "app_windows_list", tier: Tier::Read, summary: "CoolDesk's own windows", args: &[] },
-    CommandSpec { name: "list_window_tabs", tier: Tier::Read, summary: "Tabs of a native window (UI Automation)", args: &[req("hwnd", "i64")] },
-    // ── act ──
-    CommandSpec { name: "launch_app", tier: Tier::Act, summary: "Launch an app by path, as Explorer would", args: &[req("path", "string")] },
-    CommandSpec { name: "launch_app_with_args", tier: Tier::Act, summary: "Launch an executable with arguments", args: &[req("app", "string"), req("args", "string[]")] },
-    CommandSpec { name: "open_url", tier: Tier::Act, summary: "Open an http(s), mailto or ms-settings link", args: &[req("url", "string")] },
-    CommandSpec { name: "open_folder", tier: Tier::Act, summary: "Open a folder in the file manager", args: &[req("path", "string")] },
-    CommandSpec { name: "focus_window", tier: Tier::Act, summary: "Bring an app's window to the front", args: &[req("pid", "u32"), opt("name", "string"), opt("hwnd", "i64"), opt("path", "string")] },
-    CommandSpec { name: "focus_window_tab", tier: Tier::Act, summary: "Select a tab inside a native window", args: &[req("hwnd", "i64"), opt("index", "usize"), opt("title", "string")] },
-    CommandSpec { name: "app_window_focus", tier: Tier::Act, summary: "Show and focus a CoolDesk window by label", args: &[req("label", "string")] },
-    CommandSpec { name: "main_window_hide", tier: Tier::Act, summary: "Hide the CoolDesk main window", args: &[] },
-    CommandSpec { name: "open_new_window", tier: Tier::Act, summary: "Open another CoolDesk window", args: &[] },
-    // ── destructive ──
-    CommandSpec { name: "close_app", tier: Tier::Destructive, summary: "Ask an app's window to close (WM_CLOSE; it may prompt to save)", args: &[req("pid", "u32"), opt("hwnd", "i64")] },
-    CommandSpec { name: "app_window_close", tier: Tier::Destructive, summary: "Close a CoolDesk window (main is hidden instead)", args: &[req("label", "string")] },
-    CommandSpec { name: "run_project_command", tier: Tier::Destructive, summary: "Run a shell command in a new console window", args: &[req("command", "string"), opt("cwd", "string")] },
-];
-
-/// IPC commands deliberately not reachable from the CLI, with the reason.
-/// Read by the P3 parity gate.
-pub const CLI_EXCLUDED: &[(&str, &str)] = &[
-    ("app_window_set_space", "needs the calling webview's Window; UI-only"),
-];
-
-pub fn spec(name: &str) -> Option<&'static CommandSpec> {
-    COMMANDS.iter().find(|c| c.name == name)
-}
-
-// ── typed args ──
-
-#[derive(Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct NoArgs {}
-
-#[derive(Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct Hwnd { pub hwnd: i64 }
-
-#[derive(Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct PathArg { pub path: String }
-
-#[derive(Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct LaunchWithArgs { pub app: String, pub args: Vec<String> }
-
-#[derive(Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct UrlArg { pub url: String }
-
-#[derive(Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct FocusWindow { pub pid: u32, pub name: Option<String>, pub hwnd: Option<i64>, pub path: Option<String> }
-
-#[derive(Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct FocusTab { pub hwnd: i64, pub index: Option<usize>, pub title: Option<String> }
-
-#[derive(Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct Label { pub label: String }
-
-#[derive(Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct CloseApp { pub pid: u32, pub hwnd: Option<i64> }
-
-#[derive(Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct RunCommand { pub command: String, pub cwd: Option<String> }
-
-#[derive(Debug)]
-pub enum Call {
-    GetRunningApps,
-    GetInstalledApps,
-    GetFocusedApp,
-    AppWindowsList,
-    ListWindowTabs(Hwnd),
-    LaunchApp(PathArg),
-    LaunchAppWithArgs(LaunchWithArgs),
-    OpenUrl(UrlArg),
-    OpenFolder(PathArg),
-    FocusWindow(FocusWindow),
-    FocusWindowTab(FocusTab),
-    AppWindowFocus(Label),
-    MainWindowHide,
-    OpenNewWindow,
-    CloseApp(CloseApp),
-    AppWindowClose(Label),
-    RunProjectCommand(RunCommand),
+/// Derive the manifest entry for one arg from its Rust type, as written in the table.
+fn arg_spec(name: &'static str, rust_ty: &str) -> ArgSpec {
+    let t: String = rust_ty.chars().filter(|c| !c.is_whitespace()).collect();
+    let (required, inner) = match t.strip_prefix("Option<").and_then(|s| s.strip_suffix('>')) {
+        Some(inner) => (false, inner.to_string()),
+        None => (true, t),
+    };
+    let ty = match inner.as_str() {
+        "String" => "string".into(),
+        "Vec<String>" => "string[]".into(),
+        "bool" | "u16" | "u32" | "usize" | "i32" | "i64" | "f64" => inner,
+        "Value" | "serde_json::Value" => "json".into(),
+        _ => "object".into(),
+    };
+    ArgSpec { name, ty, required }
 }
 
 #[derive(Debug, PartialEq)]
 pub enum InvokeError {
     Unknown(String),
     BadArgs(String),
-    ConfirmRequired(&'static str),
+    ConfirmRequired(&'static str, Tier),
     NoApp,
     Failed(String),
 }
@@ -167,9 +96,9 @@ impl IntoResponse for InvokeError {
         let (status, body) = match self {
             InvokeError::Unknown(n) => (StatusCode::NOT_FOUND, json!({ "ok": false, "error": format!("unknown command '{n}'; GET /cli/commands lists them") })),
             InvokeError::BadArgs(e) => (StatusCode::BAD_REQUEST, json!({ "ok": false, "error": format!("bad args: {e}") })),
-            InvokeError::ConfirmRequired(n) => (
+            InvokeError::ConfirmRequired(n, tier) => (
                 StatusCode::PRECONDITION_REQUIRED,
-                json!({ "ok": false, "tier": "destructive", "error": format!("'{n}' is destructive; resend with \"confirm\": true") }),
+                json!({ "ok": false, "tier": tier, "error": format!("'{n}' is {}; resend with \"confirm\": true", serde_json::to_value(tier).unwrap().as_str().unwrap_or("")) }),
             ),
             InvokeError::NoApp => (StatusCode::SERVICE_UNAVAILABLE, json!({ "ok": false, "error": "app handle not ready" })),
             InvokeError::Failed(e) => (StatusCode::UNPROCESSABLE_ENTITY, json!({ "ok": false, "error": e })),
@@ -183,66 +112,119 @@ fn parse<T: DeserializeOwned>(args: Value) -> Result<T, InvokeError> {
     serde_json::from_value(args).map_err(|e| InvokeError::BadArgs(e.to_string()))
 }
 
-/// Turn a command name and JSON args into a typed call. Runs nothing.
-pub fn parse_call(name: &str, args: Value) -> Result<Call, InvokeError> {
-    Ok(match name {
-        "get_running_apps" => { parse::<NoArgs>(args)?; Call::GetRunningApps }
-        "get_installed_apps" => { parse::<NoArgs>(args)?; Call::GetInstalledApps }
-        "get_focused_app" => { parse::<NoArgs>(args)?; Call::GetFocusedApp }
-        "app_windows_list" => { parse::<NoArgs>(args)?; Call::AppWindowsList }
-        "list_window_tabs" => Call::ListWindowTabs(parse(args)?),
-        "launch_app" => Call::LaunchApp(parse(args)?),
-        "launch_app_with_args" => Call::LaunchAppWithArgs(parse(args)?),
-        "open_url" => Call::OpenUrl(parse(args)?),
-        "open_folder" => Call::OpenFolder(parse(args)?),
-        "focus_window" => Call::FocusWindow(parse(args)?),
-        "focus_window_tab" => Call::FocusWindowTab(parse(args)?),
-        "app_window_focus" => Call::AppWindowFocus(parse(args)?),
-        "main_window_hide" => { parse::<NoArgs>(args)?; Call::MainWindowHide }
-        "open_new_window" => { parse::<NoArgs>(args)?; Call::OpenNewWindow }
-        "close_app" => Call::CloseApp(parse(args)?),
-        "app_window_close" => Call::AppWindowClose(parse(args)?),
-        "run_project_command" => Call::RunProjectCommand(parse(args)?),
-        other => return Err(InvokeError::Unknown(other.to_string())),
-    })
-}
-
 fn app() -> Result<tauri::AppHandle, InvokeError> {
     APP.get().cloned().ok_or(InvokeError::NoApp)
 }
 
-fn to_value<T: Serialize>(v: T) -> Result<Value, InvokeError> {
+/// A plain return value.
+fn val<T: Serialize>(v: T) -> Result<Value, InvokeError> {
     serde_json::to_value(v).map_err(|e| InvokeError::Failed(e.to_string()))
 }
 
-fn unit(r: Result<(), String>) -> Result<Value, InvokeError> {
-    r.map(|()| Value::Null).map_err(InvokeError::Failed)
+/// A `Result<T, String>` return value; `Err` becomes 422.
+fn res<T: Serialize>(r: Result<T, String>) -> Result<Value, InvokeError> {
+    r.map_err(InvokeError::Failed).and_then(val)
 }
 
-/// Run a parsed call through the same function the UI's IPC command uses.
-pub async fn execute(call: Call) -> Result<Value, InvokeError> {
-    match call {
-        Call::GetRunningApps => crate::get_running_apps(app()?).await.map_err(InvokeError::Failed),
-        Call::GetInstalledApps => crate::get_installed_apps(app()?).await.map_err(InvokeError::Failed),
-        Call::GetFocusedApp => to_value(crate::get_focused_app().await),
-        Call::AppWindowsList => to_value(crate::app_windows_list(app()?)),
-        Call::ListWindowTabs(a) => to_value(crate::list_window_tabs(a.hwnd).await),
-        Call::LaunchApp(a) => unit(crate::launch_app(a.path).await),
-        Call::LaunchAppWithArgs(a) => unit(crate::launch_app_with_args(a.app, a.args).await),
-        Call::OpenUrl(a) => unit(crate::open_url(a.url).await),
-        Call::OpenFolder(a) => unit(crate::open_folder(a.path).await),
-        Call::FocusWindow(a) => unit(crate::focus_window(app()?, a.pid, a.name, a.hwnd, a.path).await),
-        Call::FocusWindowTab(a) => unit(crate::focus_window_tab(a.hwnd, a.index, a.title).await),
-        Call::AppWindowFocus(a) => unit(crate::app_window_focus(app()?, a.label)),
-        Call::MainWindowHide => {
-            crate::main_window_hide(app()?);
-            Ok(Value::Null)
+macro_rules! cli_commands {
+    ($( $name:ident : $tier:ident , $summary:literal , { $($arg:ident : $ty:ty),* $(,)? } => |$a:ident| $body:expr ; )*) => {
+        static SPECS: LazyLock<Vec<CommandSpec>> = LazyLock::new(|| vec![
+            $( CommandSpec {
+                name: stringify!($name),
+                tier: Tier::$tier,
+                summary: $summary,
+                args: vec![ $( arg_spec(stringify!($arg), stringify!($ty)) ),* ],
+            }, )*
+        ]);
+
+        /// Parse `args` for `name` without running anything.
+        pub fn check_args(name: &str, args: Value) -> Result<(), InvokeError> {
+            $( if name == stringify!($name) {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                #[allow(dead_code)]
+                struct A { $( $arg: $ty ),* }
+                parse::<A>(args)?;
+                return Ok(());
+            } )*
+            Err(InvokeError::Unknown(name.to_string()))
         }
-        Call::OpenNewWindow => unit(crate::open_new_window(app()?)),
-        Call::CloseApp(a) => unit(crate::close_app(app()?, a.pid, a.hwnd).await),
-        Call::AppWindowClose(a) => unit(crate::app_window_close(app()?, a.label)),
-        Call::RunProjectCommand(a) => unit(crate::run_project_command(a.command, a.cwd).await),
-    }
+
+        async fn dispatch(name: &str, args: Value) -> Result<Value, InvokeError> {
+            $( if name == stringify!($name) {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct A { $( $arg: $ty ),* }
+                #[allow(unused_variables)]
+                let $a: A = parse(args)?;
+                return $body;
+            } )*
+            Err(InvokeError::Unknown(name.to_string()))
+        }
+    };
+}
+
+cli_commands! {
+    // ── P2.1 launcher and windows ──
+    get_running_apps: Read, "Running apps with their windows", {} => |a| res(crate::get_running_apps(app()?).await);
+    get_installed_apps: Read, "Installed and running apps", {} => |a| res(crate::get_installed_apps(app()?).await);
+    get_focused_app: Read, "The app that has OS focus", {} => |a| val(crate::get_focused_app().await);
+    app_windows_list: Read, "CoolDesk's own windows", {} => |a| val(crate::app_windows_list(app()?));
+    list_window_tabs: Read, "Tabs of a native window (UI Automation)", { hwnd: i64 } => |a| val(crate::list_window_tabs(a.hwnd).await);
+    launch_app: Act, "Launch an app by path, as Explorer would", { path: String } => |a| res(crate::launch_app(a.path).await);
+    launch_app_with_args: Act, "Launch an executable with arguments", { app: String, args: Vec<String> } => |a| res(crate::launch_app_with_args(a.app, a.args).await);
+    open_url: Act, "Open an http(s), mailto or ms-settings link", { url: String } => |a| res(crate::open_url(a.url).await);
+    open_folder: Act, "Open a folder in the file manager", { path: String } => |a| res(crate::open_folder(a.path).await);
+    focus_window: Act, "Bring an app's window to the front", { pid: u32, name: Option<String>, hwnd: Option<i64>, path: Option<String> } => |a| res(crate::focus_window(app()?, a.pid, a.name, a.hwnd, a.path).await);
+    focus_window_tab: Act, "Select a tab inside a native window", { hwnd: i64, index: Option<usize>, title: Option<String> } => |a| res(crate::focus_window_tab(a.hwnd, a.index, a.title).await);
+    app_window_focus: Act, "Show and focus a CoolDesk window by label", { label: String } => |a| res(crate::app_window_focus(app()?, a.label));
+    main_window_hide: Act, "Hide the CoolDesk main window", {} => |a| val(crate::main_window_hide(app()?));
+    open_new_window: Act, "Open another CoolDesk window", {} => |a| res(crate::open_new_window(app()?));
+    close_app: Destructive, "Ask an app's window to close (WM_CLOSE; it may prompt to save)", { pid: u32, hwnd: Option<i64> } => |a| res(crate::close_app(app()?, a.pid, a.hwnd).await);
+    app_window_close: Destructive, "Close a CoolDesk window (main is hidden instead)", { label: String } => |a| res(crate::app_window_close(app()?, a.label));
+    run_project_command: Destructive, "Run a shell command in a new console window", { command: String, cwd: Option<String> } => |a| res(crate::run_project_command(a.command, a.cwd).await);
+
+    // ── P2.2 search and folders ──
+    web_suggest: Read, "Search-engine autocomplete suggestions (network)", { query: String, engine: Option<String> } => |a| val(crate::web_suggest(a.query, a.engine).await);
+    categorize_app: Read, "Category CoolDesk assigns to an app", { name: String, path: String } => |a| val(crate::categorize_app(a.name, a.path));
+    folder_display_name: Read, "Display name for a folder path", { path: String } => |a| val(crate::folder_display_name(a.path));
+    folder_identity: Read, "What kind of project a folder is (repo, language, icon)", { path: String } => |a| val(crate::folder_identity(a.path).await);
+    get_frequent_folders: Read, "Frequently used folders", {} => |a| val(crate::get_frequent_folders().await);
+    get_user_places: Read, "User places (Desktop, Documents, Downloads, …)", {} => |a| val(crate::get_user_places().await);
+    search_files: Read, "Search files in the indexed folders", { query: String } => |a| res(crate::search_files(app()?, a.query).await);
+    list_dir: Read, "List a directory", { path: String } => |a| res(crate::list_dir(a.path).await);
+    path_kinds: Read, "File, folder or missing, for each path", { paths: Vec<String> } => |a| val(crate::path_kinds(a.paths));
+    classify_project_folders: Read, "Whether each path looks like a project folder", { paths: Vec<String> } => |a| val(crate::classify_project_folders(a.paths));
+    folder_index_list: Read, "Folders in the file-search index", {} => |a| val(crate::folder_index::folder_index_list(app()?));
+    folder_index_add: Act, "Add a folder to the file-search index", { path: String } => |a| res(crate::folder_index::folder_index_add(app()?, a.path));
+    folder_index_set_options: Act, "Change an indexed folder's options", { path: String, enabled: Option<bool>, auto_reindex_minutes: Option<u32>, exclude: Option<Vec<String>>, include_apps: Option<bool> } => |a| res(crate::folder_index::folder_index_set_options(app()?, a.path, a.enabled, a.auto_reindex_minutes, a.exclude, a.include_apps));
+    folder_index_reindex: Act, "Re-index one folder", { path: String } => |a| res(crate::folder_index::folder_index_reindex(app()?, a.path).await);
+    folder_index_reindex_all: Act, "Re-index every folder", {} => |a| val(crate::folder_index::folder_index_reindex_all(app()?).await);
+    folder_index_remove: Destructive, "Remove a folder from the file-search index", { path: String } => |a| val(crate::folder_index::folder_index_remove(app()?, a.path));
+    trust_project_dir: Destructive, "Pre-trust a folder for Claude Code (writes its trust config)", { path: String } => |a| res(crate::trust_project_dir(a.path));
+    preview_text_file: Read, "Text preview of a file", { path: String } => |a| res(crate::preview::preview_text_file(a.path).await);
+    preview_image_file: Read, "Image preview (data URL) of a file", { path: String } => |a| res(crate::preview::preview_image_file(a.path).await);
+    preview_pdf_file: Read, "PDF preview of a file", { path: String } => |a| res(crate::preview::preview_pdf_file(a.path).await);
+    archive_list: Read, "List an archive's entries", { path: String } => |a| res(crate::archive::archive_list(a.path).await);
+    archive_extract: Act, "Extract an archive next to itself; returns the folder", { path: String } => |a| res(crate::archive::archive_extract(a.path).await);
+    archive_extract_entry: Act, "Extract one archive entry to a temp file; returns its path", { path: String, entry: String } => |a| res(crate::archive::archive_extract_entry(app()?, a.path, a.entry).await);
+    archive_compress: Act, "Zip paths next to the first one; returns the zip path", { paths: Vec<String> } => |a| res(crate::archive::archive_compress(a.paths).await);
+}
+
+/// IPC commands deliberately not reachable from the CLI, with the reason.
+/// The parity test checks this list plus the table against `generate_handler!`.
+pub const CLI_EXCLUDED: &[(&str, &str)] = &[
+    ("app_window_set_space", "needs the calling webview's Window; UI-only"),
+    ("watch_dir", "pushes change events to the calling webview; use `cooldesk watch` for state events"),
+    ("unwatch_dir", "pairs with watch_dir"),
+];
+
+pub fn specs() -> &'static [CommandSpec] {
+    &SPECS
+}
+
+pub fn spec(name: &str) -> Option<&'static CommandSpec> {
+    SPECS.iter().find(|c| c.name == name)
 }
 
 #[derive(Deserialize)]
@@ -256,19 +238,23 @@ pub struct InvokeRequest {
 }
 
 /// Tier gate, then parse, then run. The gate comes first, so an unconfirmed
-/// destructive call never reaches its function.
+/// destructive or secret call never reaches its function.
 pub async fn invoke(req: InvokeRequest) -> Result<Value, InvokeError> {
     let spec = spec(&req.cmd).ok_or_else(|| InvokeError::Unknown(req.cmd.clone()))?;
-    if spec.tier == Tier::Destructive && !req.confirm {
-        return Err(InvokeError::ConfirmRequired(spec.name));
+    if spec.tier.needs_confirm() && !req.confirm {
+        return Err(InvokeError::ConfirmRequired(spec.name, spec.tier));
     }
-    let call = parse_call(spec.name, req.args)?;
+    // Name only. Args can hold secrets (vault master, clipboard text).
     log::info!("[cli] invoke {} ({:?})", spec.name, spec.tier);
-    execute(call).await
+    dispatch(spec.name, req.args).await
 }
 
 pub async fn commands_handler() -> Json<Value> {
-    Json(json!({ "ok": true, "commands": COMMANDS, "excluded": CLI_EXCLUDED.iter().map(|(n, r)| json!({ "name": n, "reason": r })).collect::<Vec<_>>() }))
+    Json(json!({
+        "ok": true,
+        "commands": specs(),
+        "excluded": CLI_EXCLUDED.iter().map(|(n, r)| json!({ "name": n, "reason": r })).collect::<Vec<_>>(),
+    }))
 }
 
 pub async fn invoke_handler(body: Result<Json<InvokeRequest>, axum::extract::rejection::JsonRejection>) -> Response {
@@ -287,24 +273,36 @@ pub async fn invoke_handler(body: Result<Json<InvokeRequest>, axum::extract::rej
 mod tests {
     use super::*;
 
-    fn sample(ty: &str) -> Value {
-        match ty {
+    /// Commands whose args include a structured object. They can't be
+    /// sampled generically, so they're listed here; a new one fails the test until
+    /// it's added.
+    const OBJECT_ARG_COMMANDS: &[&str] = &[];
+
+    fn sample(ty: &str) -> Option<Value> {
+        Some(match ty {
             "string" => json!("x"),
-            "u32" | "usize" => json!(1),
-            "i64" => json!(1),
             "string[]" => json!(["a"]),
+            "bool" => json!(true),
+            "u16" | "u32" | "usize" | "i32" | "i64" => json!(1),
+            "f64" => json!(1.5),
+            "json" => json!({}),
+            "object" => return None,
             other => panic!("manifest uses undeclared type '{other}'"),
-        }
+        })
     }
 
-    fn full_args(c: &CommandSpec) -> Value {
-        Value::Object(c.args.iter().map(|a| (a.name.to_string(), sample(a.ty))).collect())
+    fn args_from(c: &CommandSpec, only_required: bool) -> Option<Value> {
+        let mut m = serde_json::Map::new();
+        for a in c.args.iter().filter(|a| a.required || !only_required) {
+            m.insert(a.name.to_string(), sample(&a.ty)?);
+        }
+        Some(Value::Object(m))
     }
 
     #[test]
     fn names_are_unique_and_not_excluded() {
         let mut seen = std::collections::HashSet::new();
-        for c in COMMANDS {
+        for c in specs() {
             assert!(seen.insert(c.name), "duplicate command {}", c.name);
             assert!(!CLI_EXCLUDED.iter().any(|(n, _)| *n == c.name), "{} is both exposed and excluded", c.name);
         }
@@ -312,66 +310,73 @@ mod tests {
 
     #[test]
     fn every_manifest_entry_parses_from_its_declared_args() {
-        for c in COMMANDS {
-            parse_call(c.name, full_args(c)).unwrap_or_else(|e| panic!("{}: declared args rejected: {e:?}", c.name));
-            // required-only also parses
-            let required: serde_json::Map<_, _> =
-                c.args.iter().filter(|a| a.required).map(|a| (a.name.to_string(), sample(a.ty))).collect();
-            parse_call(c.name, Value::Object(required)).unwrap_or_else(|e| panic!("{}: required-only rejected: {e:?}", c.name));
+        for c in specs() {
+            match (args_from(c, false), args_from(c, true)) {
+                (Some(full), Some(req)) => {
+                    check_args(c.name, full).unwrap_or_else(|e| panic!("{}: declared args rejected: {e:?}", c.name));
+                    check_args(c.name, req).unwrap_or_else(|e| panic!("{}: required-only rejected: {e:?}", c.name));
+                }
+                _ => assert!(OBJECT_ARG_COMMANDS.contains(&c.name), "{} has an object arg; add it to OBJECT_ARG_COMMANDS", c.name),
+            }
         }
-    }
-
-    #[tokio::test]
-    async fn invoke_only_reaches_names_in_the_manifest() {
-        // invoke() looks up the spec before parse_call, so a parser arm with no
-        // manifest entry is unreachable: it can't bypass the tier gate.
-        let r = invoke(InvokeRequest { cmd: "kill_process".into(), args: json!({}), confirm: true }).await;
-        assert_eq!(r, Err(InvokeError::Unknown("kill_process".into())));
     }
 
     #[test]
     fn missing_required_arg_is_rejected() {
-        for c in COMMANDS.iter().filter(|c| c.args.iter().any(|a| a.required)) {
-            assert!(matches!(parse_call(c.name, json!({})), Err(InvokeError::BadArgs(_))), "{} accepted empty args", c.name);
+        for c in specs().iter().filter(|c| c.args.iter().any(|a| a.required)) {
+            assert!(matches!(check_args(c.name, json!({})), Err(InvokeError::BadArgs(_))), "{} accepted empty args", c.name);
         }
     }
 
     #[test]
     fn unknown_field_is_rejected() {
-        for c in COMMANDS {
-            let mut a = full_args(c);
+        for c in specs() {
+            let mut a = args_from(c, false).unwrap_or_else(|| json!({}));
             a.as_object_mut().unwrap().insert("zzz".into(), json!(1));
-            assert!(matches!(parse_call(c.name, a), Err(InvokeError::BadArgs(_))), "{} accepted an unknown field", c.name);
+            assert!(matches!(check_args(c.name, a), Err(InvokeError::BadArgs(_))), "{} accepted an unknown field", c.name);
         }
     }
 
     #[test]
     fn null_args_mean_empty() {
-        assert!(parse_call("get_focused_app", Value::Null).is_ok());
+        assert!(check_args("get_focused_app", Value::Null).is_ok());
+    }
+
+    #[test]
+    fn arg_types_derive_from_rust_types() {
+        let a = arg_spec("x", "Option < Vec < String > >");
+        assert_eq!((a.ty.as_str(), a.required), ("string[]", false));
+        let a = arg_spec("x", "u32");
+        assert_eq!((a.ty.as_str(), a.required), ("u32", true));
+        assert_eq!(arg_spec("x", "serde_json :: Value").ty, "json");
+        assert_eq!(arg_spec("x", "crate :: vault :: EntryInput").ty, "object");
     }
 
     #[tokio::test]
-    async fn destructive_without_confirm_is_refused_before_running() {
-        for c in COMMANDS.iter().filter(|c| c.tier == Tier::Destructive) {
+    async fn confirm_tiers_are_refused_before_running() {
+        for c in specs().iter().filter(|c| c.tier.needs_confirm()) {
             // Bad args too: the refusal must come from the tier gate, not from parsing.
             let r = invoke(InvokeRequest { cmd: c.name.into(), args: json!({ "zzz": 1 }), confirm: false }).await;
-            assert_eq!(r, Err(InvokeError::ConfirmRequired(c.name)));
+            assert_eq!(r, Err(InvokeError::ConfirmRequired(c.name, c.tier)));
         }
     }
 
     #[tokio::test]
-    async fn destructive_with_confirm_reaches_parsing() {
+    async fn confirmed_call_reaches_parsing() {
         let r = invoke(InvokeRequest { cmd: "close_app".into(), args: json!({}), confirm: true }).await;
         assert!(matches!(r, Err(InvokeError::BadArgs(_))));
     }
 
+    #[tokio::test]
+    async fn invoke_only_reaches_names_in_the_manifest() {
+        let r = invoke(InvokeRequest { cmd: "no_such_command".into(), args: json!({}), confirm: true }).await;
+        assert_eq!(r, Err(InvokeError::Unknown("no_such_command".into())));
+    }
+
     #[test]
-    fn tiers_are_what_the_proposal_says() {
-        for n in ["close_app", "app_window_close", "run_project_command"] {
-            assert_eq!(spec(n).unwrap().tier, Tier::Destructive, "{n}");
-        }
-        for c in COMMANDS.iter().filter(|c| c.name.starts_with("get_") || c.name.contains("list")) {
-            assert_eq!(c.tier, Tier::Read, "{}", c.name);
+    fn tiers_for_known_dangerous_commands() {
+        for n in ["close_app", "app_window_close", "run_project_command", "folder_index_remove", "trust_project_dir"] {
+            assert_eq!(spec(n).map(|s| s.tier), Some(Tier::Destructive), "{n}");
         }
     }
 }

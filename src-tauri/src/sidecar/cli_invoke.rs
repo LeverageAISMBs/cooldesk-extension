@@ -222,6 +222,16 @@ cli_commands! {
     dock_collapse: Act, "Collapse a docked surface", { surface: String } => |a| res(crate::surfaces::dock_collapse(app()?, a.surface));
     dock_set_size: Act, "Set a docked surface's size in pixels", { surface: String, size: u32 } => |a| res(crate::surfaces::dock_set_size(app()?, a.surface, a.size).await);
     dock_open_main: Act, "Open the main window from the dock", { from: Option<String> } => |a| val(crate::surfaces::dock_open_main(app()?, a.from).await);
+
+    // ── P2.4 shelf ──
+    shelf_list: Read, "Items on the shelf", {} => |a| res(crate::shelf::shelf_list(app()?));
+    shelf_add_text: Act, "Put text on the shelf", { text: String, name: Option<String> } => |a| res(crate::shelf::shelf_add_text(app()?, a.text, a.name));
+    shelf_add_bytes: Act, "Put a file on the shelf from base64 data", { name: String, data: String, source: Option<String> } => |a| res(crate::shelf::shelf_add_bytes(app()?, a.name, a.data, a.source));
+    shelf_import: Act, "Copy files onto the shelf", { paths: Vec<String> } => |a| res(crate::shelf::shelf_import(app()?, a.paths));
+    shelf_pin: Act, "Pin or unpin a shelf item", { id: String, pinned: bool } => |a| res(crate::shelf::shelf_pin(app()?, a.id, a.pinned));
+    shelf_save_to: Act, "Move a shelf item into a folder (default Downloads); returns its path", { id: String, dest_dir: Option<String> } => |a| res(crate::shelf::shelf_save_to(app()?, a.id, a.dest_dir));
+    shelf_remove: Destructive, "Delete a shelf item", { id: String } => |a| res(crate::shelf::shelf_remove(app()?, a.id));
+    shelf_clear: Destructive, "Delete all shelf items (pinned too if include_pinned)", { include_pinned: bool } => |a| res(crate::shelf::shelf_clear(app()?, a.include_pinned));
 }
 
 /// IPC commands deliberately not reachable from the CLI, with the reason.

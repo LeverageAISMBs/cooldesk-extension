@@ -66,7 +66,8 @@ Artifacts, history exports, workflows ──► <workspace root>/.cooldesk/ ─�
   - `page_map_dom`, `page_click`, `page_type`, `page_scroll` (humanized: the scrapling algorithms);
   - `page_extract` (markdown), `page_screenshot` (`captureVisibleTab`), `page_navigate`, `page_wait`.
 - [ ] Optional `trusted:true` via `chrome.debugger` (`Input.dispatchMouseEvent`) for sites that check `isTrusted`. This adds the `debugger` permission, and Chrome shows a "being debugged" bar.
-- [ ] Ship our extension build in place of the store 2.0.19 (load unpacked from the fork), in both profiles as needed.
+- [ ] Ship our extension build in place of the store 2.0.19: run `npm run build`, then **Load unpacked → `dist/`** (not the repo root; the root page loads raw JSX), and disable the store copy. Do this in both profiles as needed.
+  - Source map: `manifest.json`, `src/background/` (the WS bridge is `bridge.js`), `src/content-scripts/`, `src/app/ExtensionApp.jsx`.
 
 ## Predictions (logged in hypothesis.md as H18–H20)
 - H18: BrowserMCP drives the logged-in Default profile with sessions intact, unlike scrapling's fresh profile.

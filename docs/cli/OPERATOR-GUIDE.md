@@ -202,10 +202,16 @@ There are two different browsers. Don't confuse them:
 | Search history | `$C search history "invoice" --limit 10` |
 | Which sites got time today | `$C activity sites --days 1` |
 
-- **Tab control needs the extension.** Install it from the Chrome Web Store ("CoolDesk"), or from this repo:
-  1. Run `npm run build`.
+- **Tab control needs the extension.** Install it from the Chrome Web Store ("New Tab by Cooldesk", id `ioggffobciopdddacpclplkeodllhjko`), or from this repo:
+  1. Run `npm run build` (the `@crxjs/vite-plugin` build writes the extension to `dist/`).
   2. Open `chrome://extensions` and turn on **Developer mode**.
-  3. Click **Load unpacked** and select the **repo root** (it uses `manifest.json`). Source: the repo README, "Load the extension".
+  3. Click **Load unpacked** and select **`dist/`**. **Not the repo root**, even though the upstream README says so: the root `pages/extension.html` loads raw `src/app/extension-main.jsx`, which Chrome can't run. Checked 2026-11-19.
+  4. If the store version is also installed, disable it, so only one CoolDesk extension talks to the app.
+- **Where its source lives:** this repo *is* the extension.
+  - Manifest: `manifest.json`.
+  - Service worker: `src/background/` (`background.js`, `bridge.js`, `workspaces.js`, `activity.js`…).
+  - Content scripts: `src/content-scripts/`.
+  - New-tab page: `pages/extension.html` → `src/app/ExtensionApp.jsx`.
 
   If `tabs list` is `[]`, tab commands can't work. Say so; don't retry.
 - **Don't** use `raw get /cmd/jump-next` or `/cmd/close-next`. They steal the extension's queue, and the CLI refuses them.

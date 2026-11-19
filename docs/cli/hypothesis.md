@@ -98,3 +98,8 @@ think → analyze → act → observe → reason → document → proceed
 ## H20 — P6.1–P6.3 need no extension change
 - Prediction: workspace artifacts, the downloads sweep, history export and workflows can all be built in the CLI/sidecar. History comes through the existing CoolDesk extension (store 2.0.19, Default profile).
 - Reality: (P6.1–P6.3)
+
+## H21 — "load unpacked → repo root" (cited from the upstream README) works
+- Prediction (unverified, written into OPERATOR-GUIDE 6.3 as fact): the upstream README's instruction loads the extension.
+- Reality (2026-11-19, prompted by Mike asking where the extension source is): the root `pages/extension.html` loads `/src/app/extension-main.jsx`, raw JSX that Chrome can't run. The loadable build is `dist/` (`@crxjs/vite-plugin`, its manifest uses `service-worker-loader.js`).
+- Diff and why: I cited a source instead of checking it. **A citation is evidence of what the source says, not of what's true.** Fixed in the guide and in P6.

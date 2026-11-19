@@ -76,3 +76,6 @@ sidecar/models/
 /docs/DEPLOY.md
 /docs/release-notes-v*.md
 /docs/screenshots/*.png
+
+# cooldesk-cli build output
+cooldesk-cli/target/

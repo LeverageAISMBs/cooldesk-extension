@@ -86,3 +86,15 @@ think → analyze → act → observe → reason → document → proceed
 - Prediction (implicit): "150 passed" means it's stable.
 - Reality: `dir_watch::tests::a_download_burst_is_one_update` failed 2/4 full runs on unmodified code and passed 6/6 in isolation. Earlier green runs were luck.
 - Lesson: one green run of a suite with sleep-based tests isn't evidence of stability. Re-run before attributing a failure, and before claiming "all pass".
+
+## H18 — BrowserMCP drives the logged-in profile with sessions intact
+- Prediction: unlike scrapling's persistent_profile (a fresh, logged-out Chrome) and CDP (Chrome 136+ refuses it on the default profile), the Browser MCP extension (v2.2.3, installed in Default and Profile 1) acts inside the real profile, so logged-in sites stay logged in.
+- Reality: (P6.0, next session; the MCP server is configured but only loads in a fresh session)
+
+## H19 — BrowserMCP's input on SPA controls
+- Prediction: clicks work on most SPA controls. If it uses chrome.debugger, its events are isTrusted, and Chrome shows the debugging infobar.
+- Reality: (P6.0)
+
+## H20 — P6.1–P6.3 need no extension change
+- Prediction: workspace artifacts, the downloads sweep, history export and workflows can all be built in the CLI/sidecar. History comes through the existing CoolDesk extension (store 2.0.19, Default profile).
+- Reality: (P6.1–P6.3)

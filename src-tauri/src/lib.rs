@@ -840,10 +840,13 @@ struct UpdateInfo {
     ping_ok: bool,
 }
 
+// Fork build (LeverageAISMBs/cooldesk-extension). See docs/cli/DECISIONS.md, D9.
+// Release checks read the fork's releases. Upstream's analytics worker isn't
+// ours to report to, so the heartbeat is off unless a build sets
+// COOLDESK_ANALYTICS_ENDPOINT. Then the update check goes straight to GitHub.
 const GITHUB_LATEST: &str =
-    "https://api.github.com/repos/abhayraghuwanshi/cooldesk-extension/releases/latest";
-const ANALYTICS_ENDPOINT: &str =
-    "https://cooldesk-analytics.raghuwanshi-abhay405.workers.dev/api/version";
+    "https://api.github.com/repos/LeverageAISMBs/cooldesk-extension/releases/latest";
+const ANALYTICS_ENDPOINT: Option<&str> = option_env!("COOLDESK_ANALYTICS_ENDPOINT");
 
 // Build-time stamp from the release workflow (winget / dmg / linux); "unknown"
 // for local builds. Only trusted off Windows — see `install_source`.
@@ -1041,6 +1044,7 @@ async fn web_suggest(query: String, engine: Option<String>) -> Vec<String> {
 /// runtime, a crash on load) is still counted. The worker records it with
 /// `ui_seen = 0`; the webview's first heartbeat flips that to 1.
 fn send_first_run_ping(app: &tauri::AppHandle) {
+    let Some(endpoint) = ANALYTICS_ENDPOINT else { return };
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         let current = handle.package_info().version.to_string();
@@ -1051,7 +1055,7 @@ fn send_first_run_ping(app: &tauri::AppHandle) {
             PingCounters { event: "first_run", ..Default::default() },
         );
         let result = reqwest::Client::new()
-            .post(ANALYTICS_ENDPOINT)
+            .post(endpoint)
             .header("User-Agent", "CoolDesk")
             .timeout(std::time::Duration::from_secs(15))
             .json(&payload)
@@ -1114,7 +1118,7 @@ async fn check_winget_update(
     let client = reqwest::Client::new();
 
     // Preferred path: route through our endpoint so the ping is recorded.
-    if analytics_enabled != Some(false) {
+    if let (true, Some(endpoint)) = (analytics_enabled != Some(false), ANALYTICS_ENDPOINT) {
         let counters = PingCounters {
             event: "heartbeat",
             spotlight_opens: spotlight_opens.unwrap_or(0),
@@ -1125,7 +1129,7 @@ async fn check_winget_update(
         };
         let payload = analytics_payload(&app, &current, locale, counters);
         let attempt = client
-            .post(ANALYTICS_ENDPOINT)
+            .post(endpoint)
             .header("User-Agent", "CoolDesk")
             .timeout(std::time::Duration::from_secs(20))
             .json(&payload)
@@ -1182,6 +1186,12 @@ const WINGET_PACKAGE_ID: &str = "CoolDesk.CoolDesk";
 /// and the caller's fallback never ran.
 #[tauri::command]
 fn run_winget_upgrade() -> Result<(), String> {
+    // Fork builds: winget matches installs by name/publisher and would replace
+    // this build with upstream's package (dropping /cli). Updates come through
+    // install_native_update from the fork's releases. See docs/cli/DECISIONS.md, D9.
+    if option_env!("COOLDESK_WINGET_UPGRADES").is_none() {
+        return Err("winget upgrades are disabled in this fork build; use the in-app updater".into());
+    }
     #[cfg(windows)]
     {
         // Headless pre-flight: `winget list` exits non-zero when nothing

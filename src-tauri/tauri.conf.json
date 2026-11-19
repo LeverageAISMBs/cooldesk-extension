@@ -87,10 +87,9 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM0OEUzMkNGOUY5M0Q5REYKUldUZjJaT2Z6ektPTk9hUVhxdU43N1QvTlJHYVdLMUJhdGRMalBzUldXdVUwRGlROXdpOVB6d3IK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFGOTQ4RkZEMzZGQzVERUEKUldUcVhmdzIvWStVSDlvZE1nZU54K0Y1ZHNMOXRhcXduVkRvU2hjaXc5V20zNWs4QUJRMVp3KzIK",
       "endpoints": [
-        "https://cool-desk.com/api/update",
-        "https://github.com/abhayraghuwanshi/cooldesk-extension/releases/latest/download/latest.json"
+        "https://github.com/LeverageAISMBs/cooldesk-extension/releases/latest/download/latest.json"
       ]
     }
   },

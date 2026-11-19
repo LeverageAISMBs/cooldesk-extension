@@ -1,3 +1,4 @@
+// Modified in the LeverageAISMBs/cooldesk-extension fork (2026-11): registers cli_auth and cli_invoke. See FORK-CHANGES.md.
 // Sidecar Server Module
 // Rust replacement for Node.js sidecar
 

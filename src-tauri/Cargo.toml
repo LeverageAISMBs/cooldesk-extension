@@ -1,3 +1,4 @@
+# Modified in the LeverageAISMBs/cooldesk-extension fork (2026-11): dependencies for the CLI token. See FORK-CHANGES.md.
 [package]
 name = "cooldesk"
 version = "2.0.22"

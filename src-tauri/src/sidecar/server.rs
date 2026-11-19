@@ -1,3 +1,4 @@
+// Modified in the LeverageAISMBs/cooldesk-extension fork (2026-11): token-gated /cli routes, COOLDESK_SIDECAR_PORT test override. See FORK-CHANGES.md.
 // HTTP + WebSocket server for sidecar
 
 use crate::sidecar::data::*;

@@ -108,3 +108,11 @@ Ran against CoolDesk v2.0.22 (`cooldesk.exe` pid 20028, sidecar :4545).
 - **Registered:** user scope (`C:\Users\mikes\.claude.json`), command `C:/Users/mikes/.cargo/bin/cooldesk-cli.exe mcp serve` (installed with `cargo install --path .`). `claude mcp get cooldesk` → ✔ Connected.
 - **E2E:** a headless `claude -p --model haiku` with a 4546 config answered "version: 2.0.22 / port 4546 owner: cooldesk.exe". The transcript shows the two cooldesk tool_use calls. $0.0048.
 - **Caveat:** the registered server targets 4545, the installed CoolDesk 2.0.22, which has no /cli routes. Until a build from these branches runs there, agents see only the 7 legacy tools.
+
+## 2026-11-19 — Launch prep (branch release/fork-launch)
+- The CLI crate moved into the fork. All 12 cli/* branches were pushed to origin (LeverageAISMBs). The first push failed (403) because a browser was logged into the personal GitHub account.
+- Fork release channel: updater, update banner, analytics off, winget refused. A new passworded signing key is in the keyring (cooldesk-release).
+- Signed NSIS/MSI built from source and installed. The daily app is now this build, on 4545.
+- Docs: OPERATOR-GUIDE (hand-written, verified live, passed a zero-context Haiku acceptance test, 6/6), DECISIONS (D1–D12), and the generated COMMAND-REFERENCE.
+- P5: docs, completions (PowerShell verified), batch. Git Bash path-rewrite guard in `raw`.
+- Known pre-existing flaky test: dir_watch::a_download_burst_is_one_update (2/4 failures on untouched code).

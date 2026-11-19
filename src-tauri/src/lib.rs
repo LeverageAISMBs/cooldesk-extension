@@ -1,3 +1,4 @@
+// Modified in the LeverageAISMBs/cooldesk-extension fork (2026-11): AppHandle for the /cli dispatch; fork release channel (update check, analytics off by default, winget refused). See FORK-CHANGES.md.
 use tauri::{Manager, Emitter};
 use tauri_plugin_autostart::ManagerExt;
 use std::sync::{Arc, RwLock};

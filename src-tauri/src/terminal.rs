@@ -1,3 +1,4 @@
+// Modified in the LeverageAISMBs/cooldesk-extension fork (2026-11): read-only session_list() for the CLI. See FORK-CHANGES.md.
 //! Built-in terminal: a real login shell in a pseudo-terminal per Browse
 //! terminal tab. The frontend (xterm.js, `features/terminal/`) draws it;
 //! here we spawn the shell, pipe keystrokes in and stream output back.

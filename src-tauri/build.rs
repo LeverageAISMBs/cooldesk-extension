@@ -1,3 +1,4 @@
+// Modified in the LeverageAISMBs/cooldesk-extension fork (2026-11): linker-embedded app manifest for every Windows/MSVC target. See FORK-CHANGES.md.
 fn main() {
   // SkyLight.framework (used by `dock::cgs` for the private macOS Spaces
   // API — see that module's doc comment) lives under PrivateFrameworks,

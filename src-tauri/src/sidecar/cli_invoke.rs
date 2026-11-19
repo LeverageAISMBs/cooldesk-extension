@@ -479,6 +479,54 @@ mod tests {
         Some(Value::Object(m))
     }
 
+    /// IPC command names from `generate_handler![…]` in lib.rs, path prefixes stripped.
+    fn ipc_commands() -> Vec<String> {
+        let src = include_str!("../lib.rs");
+        let start = src.find("generate_handler![").expect("generate_handler! not found in lib.rs") + "generate_handler![".len();
+        let end = start + src[start..].find(']').expect("unterminated generate_handler!");
+        let body = &src[start..end];
+        assert!(!body.contains("#[") && !body.contains("//"), "generate_handler! now has attributes/comments; teach this parser about them");
+        let names: Vec<String> = body
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.rsplit("::").next().unwrap().to_string())
+            .collect();
+        for n in &names {
+            assert!(n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'), "unparsed handler entry {n:?}");
+        }
+        names
+    }
+
+    /// P3 parity gate: every IPC command is either reachable from the CLI or
+    /// excluded with a reason. Adding a #[tauri::command] without deciding
+    /// fails here.
+    #[test]
+    fn every_ipc_command_is_exposed_or_excluded() {
+        let ipc = ipc_commands();
+        // Fail closed if the parse silently found nothing useful.
+        assert!(ipc.len() >= 100, "parsed only {} IPC commands; parser broken?", ipc.len());
+        let missing: Vec<_> = ipc
+            .iter()
+            .filter(|n| spec(n).is_none() && !CLI_EXCLUDED.iter().any(|(e, _)| e == n))
+            .collect();
+        assert!(missing.is_empty(), "IPC commands neither in the CLI table nor CLI_EXCLUDED: {missing:?}");
+    }
+
+    #[test]
+    fn no_stale_or_phantom_names() {
+        let ipc = ipc_commands();
+        for (e, reason) in CLI_EXCLUDED {
+            assert!(ipc.iter().any(|n| n == e), "CLI_EXCLUDED lists {e}, which is no longer an IPC command");
+            assert!(!reason.trim().is_empty(), "{e} excluded without a reason");
+        }
+        for c in specs() {
+            let is_ipc = ipc.iter().any(|n| n == c.name);
+            let cli_only = CLI_ONLY.contains(&c.name);
+            assert!(is_ipc != cli_only, "{}: must be an IPC command xor listed in CLI_ONLY (ipc={is_ipc}, cli_only={cli_only})", c.name);
+        }
+    }
+
     #[test]
     fn names_are_unique_and_not_excluded() {
         let mut seen = std::collections::HashSet::new();

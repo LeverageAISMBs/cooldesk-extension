@@ -314,6 +314,24 @@ cli_commands! {
     terminal_focus: Act, "Focus the terminal in a CoolDesk window (only if that window has focus)", { webview: String } => |a| res(crate::terminal::terminal_focus(webview_by_label(&a.webview)?));
     terminal_write: Destructive, "Type into a terminal (send \"\\r\" to press Enter)", { webview: String, id: String, data: String } => |a| res(crate::terminal::terminal_write(webview_by_label(&a.webview)?, a.id, a.data));
     terminal_close: Destructive, "Close a terminal and end its shell", { webview: String, id: String } => |a| res(crate::terminal::terminal_close(webview_by_label(&a.webview)?, a.id));
+
+    // ── P2.8 processes, updates, system, backups ──
+    list_listening_ports: Read, "Listening TCP ports with their process", {} => |a| res(crate::list_listening_ports().await);
+    get_app_version: Read, "CoolDesk version", {} => |a| val(crate::get_app_version(app()?));
+    get_launch_at_login: Read, "Whether CoolDesk starts at login", {} => |a| val(crate::get_launch_at_login(app()?));
+    get_backups_dir: Read, "Backups folder", {} => |a| res(crate::get_backups_dir(app()?));
+    list_backups: Read, "Backups, newest first", {} => |a| res(crate::list_backups(app()?));
+    read_backup: Read, "Contents of a backup (must be inside the backups folder)", { path: String } => |a| res(crate::read_backup(app()?, a.path));
+    get_agent_workspace_dir: Read, "Folder CoolDesk gives AI agents to work in", {} => |a| res(crate::get_agent_workspace_dir(app()?));
+    ai_cli_detect: Read, "Which AI CLIs (claude, codex, …) are on PATH", { bins: Vec<String> } => |a| val(crate::ai_cli::ai_cli_detect(a.bins));
+    set_launch_at_login: Act, "Start CoolDesk at login, or not", { enabled: bool } => |a| res(crate::set_launch_at_login(app()?, a.enabled));
+    set_analytics_enabled: Act, "Turn anonymous analytics on or off", { enabled: bool } => |a| res(crate::set_analytics_enabled(app()?, a.enabled));
+    kill_process: Destructive, "Force-kill a process and its children (taskkill /F /T)", { pid: u32 } => |a| res(crate::kill_process(a.pid).await);
+    kill_process_on_port: Destructive, "Force-kill whatever is listening on a port", { port: u16 } => |a| res(crate::kill_process_on_port(a.port).await);
+    save_backup: Destructive, "Write a backup from JSON contents (prunes the oldest backups)", { contents: String } => |a| res(crate::save_backup(app()?, a.contents));
+    delete_backup: Destructive, "Delete a backup (must be inside the backups folder)", { path: String } => |a| res(crate::delete_backup(app()?, a.path));
+    run_winget_upgrade: Destructive, "Upgrade CoolDesk through winget (the app restarts)", {} => |a| res(crate::run_winget_upgrade());
+    install_native_update: Destructive, "Download and install the pending update (the app restarts)", {} => |a| res(crate::install_native_update(app()?).await);
 }
 
 /// Commands the CLI has that aren't IPC commands (the parity test skips them).
@@ -343,6 +361,9 @@ pub const CLI_EXCLUDED: &[(&str, &str)] = &[
     ("webapp_embed_set_bounds", "needs the calling webview's Window; layout-driven"),
     ("webapp_embed_close", "pairs with webapp_embed_open"),
     ("terminal_open", "streams output over the opening webview's IPC Channel; use spotlight_run_in_terminal or run_project_command"),
+    ("check_winget_update", "also sends the app's analytics heartbeat, on a schedule the UI owns"),
+    ("ai_cli_run", "streams the agent's output to the UI as events; run the AI CLI directly instead"),
+    ("ai_cli_cancel", "pairs with ai_cli_run"),
 ];
 
 pub fn specs() -> &'static [CommandSpec] {
@@ -501,7 +522,11 @@ mod tests {
 
     #[test]
     fn tiers_for_known_dangerous_commands() {
-        for n in ["close_app", "app_window_close", "run_project_command", "folder_index_remove", "trust_project_dir"] {
+        for n in [
+            "close_app", "app_window_close", "run_project_command", "folder_index_remove", "trust_project_dir",
+            "spotlight_run_in_terminal", "clipboard_set_filters", "site_permissions_set", "terminal_write",
+            "kill_process", "kill_process_on_port", "save_backup", "run_winget_upgrade", "install_native_update",
+        ] {
             assert_eq!(spec(n).map(|s| s.tier), Some(Tier::Destructive), "{n}");
         }
     }

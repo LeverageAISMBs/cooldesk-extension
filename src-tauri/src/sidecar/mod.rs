@@ -18,5 +18,6 @@ pub mod local_servers;
 pub mod mcp;
 pub mod browser_history;
 pub mod cli_auth;
+pub mod cli_invoke;
 
 pub use server::start_server;

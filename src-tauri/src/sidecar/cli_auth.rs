@@ -93,6 +93,8 @@ async fn cli_ping() -> Json<serde_json::Value> {
 pub fn router_with_token<S: Clone + Send + Sync + 'static>(token: String) -> Router<S> {
     Router::new()
         .route("/cli/ping", get(cli_ping))
+        .route("/cli/commands", get(crate::sidecar::cli_invoke::commands_handler))
+        .route("/cli/invoke", axum::routing::post(crate::sidecar::cli_invoke::invoke_handler))
         .route_layer(middleware::from_fn_with_state(CliToken(Arc::new(token)), require_token))
 }
 
@@ -191,6 +193,44 @@ mod tests {
         let req = HttpRequest::builder().uri("/cli/nope").body(Body::empty()).unwrap();
         // route_layer only wraps matched routes; an unmatched path must not succeed.
         assert_ne!(status(app("t0k"), req).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn commands_and_invoke_are_behind_the_token() {
+        let a = app("t0k");
+        let req = HttpRequest::builder().uri("/cli/commands").body(Body::empty()).unwrap();
+        assert_eq!(status(a.clone(), req).await, StatusCode::UNAUTHORIZED);
+        let req = HttpRequest::builder()
+            .method("POST")
+            .uri("/cli/invoke")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"cmd":"get_focused_app"}"#))
+            .unwrap();
+        assert_eq!(status(a.clone(), req).await, StatusCode::UNAUTHORIZED);
+        let req = HttpRequest::builder().uri("/cli/commands").header("authorization", "Bearer t0k").body(Body::empty()).unwrap();
+        assert_eq!(status(a, req).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn invoke_status_codes() {
+        let post = |body: &'static str| {
+            HttpRequest::builder()
+                .method("POST")
+                .uri("/cli/invoke")
+                .header("authorization", "Bearer t0k")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap()
+        };
+        let a = app("t0k");
+        assert_eq!(status(a.clone(), post(r#"{"cmd":"nope"}"#)).await, StatusCode::NOT_FOUND);
+        assert_eq!(status(a.clone(), post(r#"{"cmd":"close_app","args":{"pid":1}}"#)).await, StatusCode::PRECONDITION_REQUIRED);
+        assert_eq!(status(a.clone(), post(r#"{"cmd":"launch_app","args":{}}"#)).await, StatusCode::BAD_REQUEST);
+        assert_eq!(status(a.clone(), post(r#"not json"#)).await, StatusCode::BAD_REQUEST);
+        // No AppHandle in tests: commands that need one report 503 instead of panicking.
+        assert_eq!(status(a.clone(), post(r#"{"cmd":"app_windows_list"}"#)).await, StatusCode::SERVICE_UNAVAILABLE);
+        // hwnd 0 returns [] without touching the OS: a harmless 200 end to end.
+        assert_eq!(status(a, post(r#"{"cmd":"list_window_tabs","args":{"hwnd":0}}"#)).await, StatusCode::OK);
     }
 
     #[tokio::test]

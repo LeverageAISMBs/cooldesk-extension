@@ -3190,6 +3190,9 @@ pub fn run() {
       // Password vault: settings + idle auto-lock.
       vault::start(app.handle().clone());
 
+      // /cli/invoke calls IPC command functions that need the AppHandle.
+      sidecar::cli_invoke::set_app_handle(app.handle().clone());
+
       // Spawn Rust Sidecar Server (replaces Node.js sidecar)
       tauri::async_runtime::spawn(async {
           if let Err(e) = sidecar::start_server().await {

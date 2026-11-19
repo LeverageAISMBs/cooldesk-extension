@@ -2,7 +2,7 @@
 
 You are an AI agent with no prior context. This guide is enough to operate CoolDesk on this machine: launch and manage apps, drive the terminal and the browser, work with files, organize projects, and customize the app. Every command here has been run against a real CoolDesk. When something is not possible, this guide says so instead of guessing.
 
-**Read sections 1–4 before doing anything. Then jump to the recipe you need (section 6).**
+**Read sections 1–4 before doing anything. Then jump to the recipe you need (section 6).** Every command with its exact args: [COMMAND-REFERENCE.md](COMMAND-REFERENCE.md) (generated).
 
 ---
 

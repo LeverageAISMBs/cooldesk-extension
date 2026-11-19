@@ -5,6 +5,7 @@
 //! `src-tauri/src/sidecar/server.rs` (the route table at lines 213-313).
 
 mod mcp_serve;
+mod p5;
 
 use clap::{Args, Parser, Subcommand};
 use serde_json::{Value, json};
@@ -100,7 +101,7 @@ enum Cmd {
         #[arg(long)]
         tier: Option<String>,
     },
-    /// Run an app action through POST /cli/invoke. `cooldesk commands` lists them.
+    /// Run an app action through POST /cli/invoke. `cooldesk-cli commands` lists them.
     Invoke {
         /// Command name, e.g. launch_app
         cmd: String,
@@ -110,6 +111,26 @@ enum Cmd {
         /// Confirm a destructive or secret command. Without it the app refuses (exit 5).
         #[arg(long)]
         yes: bool,
+    },
+    /// Generate the Markdown command reference from the live manifest
+    Docs {
+        /// Write to this file instead of stdout
+        #[arg(long)]
+        out: Option<String>,
+    },
+    /// Print shell completions (bash, zsh, fish, powershell, elvish). `invoke <cmd>` (not elvish)
+    /// completes command names when CoolDesk is running at generation time.
+    Completions { shell: clap_complete::Shell },
+    /// Run many actions: NDJSON on stdin, one {"cmd","args","confirm"} per line; NDJSON
+    /// results on stdout. Blank lines and lines starting with # are skipped.
+    Batch {
+        /// Allow lines to confirm destructive/secret commands ("confirm": true). Without it
+        /// every line's confirm is ignored, so destructive lines are refused.
+        #[arg(long)]
+        yes: bool,
+        /// Stop at the first failed line
+        #[arg(long)]
+        stop_on_error: bool,
     },
 }
 
@@ -454,6 +475,16 @@ fn run(cli: &Cli) -> R<Value> {
             c.post("/cli/invoke", &json!({ "cmd": cmd, "args": args, "confirm": yes }))
         }
 
+        Cmd::Docs { out } => p5::docs(&c, out.as_deref()),
+        Cmd::Completions { shell } => {
+            print!("{}", p5::completions(*shell, p5::manifest_entries(&c)));
+            Ok(Value::Null)
+        }
+        Cmd::Batch { yes, stop_on_error } => match p5::batch(&c, *yes, *stop_on_error) {
+            0 => Ok(Value::Null),
+            n => Err(Failure::Http(format!("{n} batch line(s) failed"))),
+        },
+
         Cmd::Ws(WsCmd::List) => c.get("/workspaces", &[]),
         Cmd::Ws(WsCmd::Show { name }) => {
             let all = c.get("/workspaces", &[])?;
@@ -552,6 +583,9 @@ fn run(cli: &Cli) -> R<Value> {
 
         Cmd::Watch { r#type, initial, count } => watch(cli.port, r#type, *initial, *count),
 
+        Cmd::Raw(RawCmd::Get { path }) | Cmd::Raw(RawCmd::Post { path, .. }) if mangled_path_hint(path).is_some() => {
+            Err(Failure::Usage(mangled_path_hint(path).unwrap()))
+        }
         Cmd::Raw(RawCmd::Get { path }) => c.get(&norm_path(path), &[]),
         Cmd::Raw(RawCmd::Post { path, body }) => {
             let p = norm_path(path);
@@ -569,6 +603,31 @@ fn norm_path(p: &str) -> String {
     if p.starts_with('/') { p.to_string() } else { format!("/{p}") }
 }
 
+/// Git Bash turns `/workspaces` into `C:/Program Files/Git/workspaces` before we see it.
+/// Catch that and say how to fix it, instead of sending it and getting a 404.
+fn mangled_path_hint(p: &str) -> Option<String> {
+    let b = p.as_bytes();
+    let drive = b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'/' || b[2] == b'\\');
+    drive.then(|| format!(
+        "path {p:?} looks rewritten by Git Bash (MSYS path conversion). Drop the leading slash, \
+         e.g. `raw post workspaces …`, or set MSYS_NO_PATHCONV=1"
+    ))
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    #[test]
+    fn detects_git_bash_rewrite_only() {
+        assert!(mangled_path_hint("C:/Program Files/Git/workspaces").is_some());
+        assert!(mangled_path_hint("c:\\x").is_some());
+        assert!(mangled_path_hint("/workspaces").is_none());
+        assert!(mangled_path_hint("workspaces").is_none());
+        assert!(mangled_path_hint("cli/ping").is_none());
+    }
+}
+
 /// Matches anywhere in the path. Git Bash rewrites `/cmd/x` to `C:/Program Files/Git/cmd/x`,
 /// so a prefix check would let it through.
 fn is_dequeue_route(p: &str) -> bool {
@@ -581,6 +640,13 @@ fn reports_failure(v: &Value) -> bool {
     v.get("ok") == Some(&Value::Bool(false)) || v.get("success") == Some(&Value::Bool(false))
 }
 
+/// Human-readable message for a failure (used by batch and mcp serve).
+pub(crate) fn failure_message(f: &Failure) -> String {
+    match f {
+        Failure::NotRunning(m) | Failure::Http(m) | Failure::Usage(m) | Failure::Auth(m) | Failure::Refused(m) => m.clone(),
+    }
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     if let Cmd::Raw(RawCmd::Get { path }) = &cli.cmd {
@@ -591,7 +657,8 @@ fn main() -> ExitCode {
         }
     }
     match run(&cli) {
-        Ok(Value::Null) if matches!(cli.cmd, Cmd::Watch { .. } | Cmd::Mcp(McpCmd::Serve { .. })) => ExitCode::SUCCESS,
+        // Null = the command already wrote its own output (watch, mcp serve, docs, completions, batch).
+        Ok(Value::Null) => ExitCode::SUCCESS,
         Ok(v) => {
             let out = if cli.compact { v.to_string() } else { serde_json::to_string_pretty(&v).unwrap_or_default() };
             println!("{out}");

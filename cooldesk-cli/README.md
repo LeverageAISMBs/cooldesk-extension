@@ -76,6 +76,18 @@ claude mcp add cooldesk -s user -- C:/Users/mikes/.cargo/bin/cooldesk-cli.exe mc
 - **Why not the app's `/mcp`:** it has no auth, so action tools must not go there.
 - **Live test:** `python -I scripts/mcp_live.py` (26 checks; uses `scripts/app.sh` on port 4546).
 
+## Generated docs, completions, batch (P5)
+
+```
+cooldesk-cli docs --out docs/cli/COMMAND-REFERENCE.md   # reference generated from the live manifest
+cooldesk-cli completions powershell >> $PROFILE          # also bash, zsh, fish, elvish
+printf '%s
+' '{"cmd":"get_app_version"}' '{"cmd":"list_dir","args":{"path":"C:/"}}' | cooldesk-cli batch
+```
+
+- **completions:** `invoke <TAB>` completes the app's command names (with summaries) in bash, zsh, fish and PowerShell when CoolDesk is running at generation time. Not in elvish. `commands --tier <TAB>` completes in bash and zsh only (clap_complete doesn't emit option values for PowerShell or fish).
+- **batch:** NDJSON in, one `{"cmd","args","confirm"}` per line; NDJSON out, `{"line","ok","cmd","result"|"error"}`. Blank lines and `#` lines are skipped. A line's `confirm` counts only when the batch runs with `--yes`. `--stop-on-error` stops at the first failed line. Exit 1 if any line failed.
+
 ## Exit codes
 
 | Code | Meaning |

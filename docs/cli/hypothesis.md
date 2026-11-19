@@ -75,3 +75,14 @@ think → analyze → act → observe → reason → document → proceed
 ## H15 — Claude Code shows a stdio server as Connected even when CoolDesk is down
 - Prediction: initialize doesn't touch the app, so `claude mcp list` says Connected whether or not CoolDesk runs. With the app down, tools/list returns [] (or only legacy tools).
 - Reality: confirmed. `claude mcp get cooldesk` showed ✔ Connected with nothing on 4545. The live test got tools/list = [] with the app down, then notifications/tools/list_changed within the poll window once it started, then 122 tools.
+
+## H16 — `tauri signer generate --ci` with no `-p` gives an empty-password key
+- Prediction: `--ci` skips the prompt, so the key has an empty password, and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""` signs with it.
+- Reality (2026-11-19): the 8-minute release build compiled and bundled, then failed at signing with "incorrect updater private key password: Wrong password for that key". `tauri signer sign -f key -p ""` failed the same way. Without `-p` it waited for a prompt.
+- Diff and why: `--ci` without `-p` doesn't produce a key that "" unlocks. I trusted a flag's name instead of round-tripping (generate, then sign a dummy file) before spending a full build.
+- Fix and lesson: generate with an explicit random `-p` and store both the key and the password in the keyring. **Round-trip any generated credential (sign + verify a dummy) before relying on it.**
+
+## H17 — upstream's test suite is green
+- Prediction (implicit): "150 passed" means it's stable.
+- Reality: `dir_watch::tests::a_download_burst_is_one_update` failed 2/4 full runs on unmodified code and passed 6/6 in isolation. Earlier green runs were luck.
+- Lesson: one green run of a suite with sleep-based tests isn't evidence of stability. Re-run before attributing a failure, and before claiming "all pass".

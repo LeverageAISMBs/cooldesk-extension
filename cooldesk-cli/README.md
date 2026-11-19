@@ -1,5 +1,7 @@
 # cooldesk-cli
 
+**AI agents: start with [docs/cli/OPERATOR-GUIDE.md](../docs/cli/OPERATOR-GUIDE.md).** Design decisions: [docs/cli/DECISIONS.md](../docs/cli/DECISIONS.md).
+
 Drives a running CoolDesk through its local sidecar (`127.0.0.1:4545`). This is P0 of `../CLI-PROPOSAL.md`: it uses only what the app already exposes and makes no changes to CoolDesk.
 
 ```
@@ -37,11 +39,11 @@ Global options:
 ## App actions (`/cli/invoke`, needs the token)
 
 ```
-cooldesk commands [--tier read|act|destructive]
-cooldesk invoke get_running_apps
-cooldesk invoke launch_app --json '{"path":"C:/Windows/System32/charmap.exe"}'
-cooldesk invoke focus_window --json '{"pid":1234}'
-cooldesk invoke close_app --json '{"pid":1234}' --yes     # destructive: refused (exit 5) without --yes
+cooldesk-cli commands [--tier read|act|destructive]
+cooldesk-cli invoke get_running_apps
+cooldesk-cli invoke launch_app --json '{"path":"C:/Windows/System32/charmap.exe"}'
+cooldesk-cli invoke focus_window --json '{"pid":1234}'
+cooldesk-cli invoke close_app --json '{"pid":1234}' --yes     # destructive: refused (exit 5) without --yes
 ```
 
 Command names are the app's IPC command names, and arg names are the Rust parameter names (snake_case, e.g. `dest_dir`, not `destDir`). Bad args → 400, unknown command → 404, command error → 422 (all exit 1).
@@ -49,18 +51,18 @@ Command names are the app's IPC command names, and arg names are the Rust parame
 Tiers: `read` and `act` run directly. `destructive` (kill, delete, close, run arbitrary input, security settings) and `secret` (the vault) need `--yes`; otherwise the app refuses with exit 5. Examples:
 
 ```
-cooldesk commands --tier secret
-cooldesk invoke list_listening_ports
-cooldesk invoke kill_process_on_port --json '{"port":3000}' --yes
-cooldesk invoke terminal_list                                     # then:
-cooldesk invoke terminal_write --json '{"webview":"main","id":"<id>","data":"npm test
+cooldesk-cli commands --tier secret
+cooldesk-cli invoke list_listening_ports
+cooldesk-cli invoke kill_process_on_port --json '{"port":3000}' --yes
+cooldesk-cli invoke terminal_list                                     # then:
+cooldesk-cli invoke terminal_write --json '{"webview":"main","id":"<id>","data":"npm test
 "}' --yes
-cooldesk invoke shelf_add_text --json '{"text":"remember this"}'
+cooldesk-cli invoke shelf_add_text --json '{"text":"remember this"}'
 ```
 
 ## MCP server (Claude Code and other agents)
 
-`cooldesk mcp serve` runs an MCP server on stdio. Its tools are the app's `/cli/commands` manifest plus the app's 7 legacy read-only `/mcp` tools. It's registered user-scope on this machine:
+`cooldesk-cli mcp serve` runs an MCP server on stdio. Its tools are the app's `/cli/commands` manifest plus the app's 7 legacy read-only `/mcp` tools. It's registered user-scope on this machine:
 
 ```
 claude mcp add cooldesk -s user -- C:/Users/mikes/.cargo/bin/cooldesk-cli.exe mcp serve
@@ -88,7 +90,7 @@ claude mcp add cooldesk -s user -- C:/Users/mikes/.cargo/bin/cooldesk-cli.exe mc
 ## Known gaps (P0)
 
 - **No delete.** Every POST route merges and none removes (`sync.rs:46`, `sync.rs:134`). Delete needs a new route (P2).
-- **Actions:** `cooldesk commands` lists 124 actions (every IPC command except 17 UI-only ones, which are listed with reasons under `excluded`). Not reachable: opening terminals and browser panes (the UI owns their windows and output streams), and the AI-CLI runner.
+- **Actions:** `cooldesk-cli commands` lists 124 actions (every IPC command except 17 UI-only ones, which are listed with reasons under `excluded`). Not reachable: opening terminals and browser panes (the UI owns their windows and output streams), and the AI-CLI runner.
 - **`tabs jump/close` return `success` once the request is queued** for the browser extension, not when it's done. A tab ID that doesn't exist still returns success.
 - **`/cmd/jump-next` and `/cmd/close-next` are refused.** They remove items from the extension's poll queue (`handlers.rs:1352`).
 - **Git Bash rewrites `/paths`** into Windows paths. For `raw`, drop the leading slash (`raw get health`) or set `MSYS_NO_PATHCONV=1`.

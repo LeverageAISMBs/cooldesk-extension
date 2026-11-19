@@ -87,7 +87,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFGOTQ4RkZEMzZGQzVERUEKUldUcVhmdzIvWStVSDlvZE1nZU54K0Y1ZHNMOXRhcXduVkRvU2hjaXc5V20zNWs4QUJRMVp3KzIK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA4MzQ1NDNGN0RBRjI0NkMKUldSc0pLOTlQMVEwQ0tjckpXZ0NDaEJNbEk4QkdIZ3lqajlySEIxdVU0TVkzR25CUHNDVWJsY00K",
       "endpoints": [
         "https://github.com/LeverageAISMBs/cooldesk-extension/releases/latest/download/latest.json"
       ]

@@ -209,6 +209,19 @@ cli_commands! {
     archive_extract: Act, "Extract an archive next to itself; returns the folder", { path: String } => |a| res(crate::archive::archive_extract(a.path).await);
     archive_extract_entry: Act, "Extract one archive entry to a temp file; returns its path", { path: String, entry: String } => |a| res(crate::archive::archive_extract_entry(app()?, a.path, a.entry).await);
     archive_compress: Act, "Zip paths next to the first one; returns the zip path", { paths: Vec<String> } => |a| res(crate::archive::archive_compress(a.paths).await);
+
+    // ── P2.3 spotlight and dock ──
+    toggle_spotlight: Act, "Show or hide Spotlight", {} => |a| val(crate::toggle_spotlight(app()?));
+    hide_spotlight: Act, "Hide Spotlight", {} => |a| val(crate::hide_spotlight(app()?));
+    set_spotlight_shortcut: Act, "Change Spotlight's global shortcut, e.g. \"Alt+Space\"", { shortcut: String } => |a| res(crate::set_spotlight_shortcut(app()?, a.shortcut));
+    spotlight_run_in_terminal: Destructive, "Open Spotlight's terminal and run a command in it", { command: String } => |a| res(crate::spotlight_run_in_terminal(app()?, a.command));
+    dock_get_state: Read, "State of the docked surfaces (sidebar, bar)", {} => |a| val(crate::surfaces::dock_get_state(app()?));
+    dock_enable: Act, "Dock a surface to a screen edge", { surface: String, side: Option<String>, size: Option<u32>, mode: Option<String>, expand: Option<bool> } => |a| res(crate::surfaces::dock_enable(app()?, a.surface, a.side, a.size, a.mode, a.expand).await);
+    dock_disable: Act, "Undock a surface", { surface: String } => |a| res(crate::surfaces::dock_disable(app()?, a.surface).await);
+    dock_expand: Act, "Expand a docked surface", { surface: String } => |a| res(crate::surfaces::dock_expand(app()?, a.surface).await);
+    dock_collapse: Act, "Collapse a docked surface", { surface: String } => |a| res(crate::surfaces::dock_collapse(app()?, a.surface));
+    dock_set_size: Act, "Set a docked surface's size in pixels", { surface: String, size: u32 } => |a| res(crate::surfaces::dock_set_size(app()?, a.surface, a.size).await);
+    dock_open_main: Act, "Open the main window from the dock", { from: Option<String> } => |a| val(crate::surfaces::dock_open_main(app()?, a.from).await);
 }
 
 /// IPC commands deliberately not reachable from the CLI, with the reason.
@@ -217,6 +230,11 @@ pub const CLI_EXCLUDED: &[(&str, &str)] = &[
     ("app_window_set_space", "needs the calling webview's Window; UI-only"),
     ("watch_dir", "pushes change events to the calling webview; use `cooldesk watch` for state events"),
     ("unwatch_dir", "pairs with watch_dir"),
+    ("open_spotlight_edit", "hands a workspace from one window to Spotlight's editor; UI handoff"),
+    ("take_spotlight_edit", "Spotlight's side of that handoff queue"),
+    ("take_terminal_run", "Spotlight's side of the run-in-terminal handoff; use spotlight_run_in_terminal"),
+    ("dock_resize", "live drag resize driven by pointer events; use dock_set_size"),
+    ("dock_set_bar_content_width", "layout measurement reported by the bar's own webview"),
 ];
 
 pub fn specs() -> &'static [CommandSpec] {

@@ -36,7 +36,7 @@ Artifacts, history exports, workflows ──► <workspace root>/.cooldesk/ ─�
 ## Tasks
 
 ### P6.0 — evaluate BrowserMCP in the real profile (next session; the server is configured, so it needs a fresh session)
-- [ ] Launch Chrome through CoolDesk: `launch_app_with_args {"app":"C:/Program Files/Google/Chrome/Application/chrome.exe","args":["--profile-directory=Default"]}`.
+- [ ] Launch Chrome through CoolDesk **in Profile 1**: `launch_app_with_args {"app":"C:/Program Files/Google/Chrome/Application/chrome.exe","args":["--profile-directory=Profile 1"]}`. Profile 1 has our CoolDesk build (unpacked `dist/`, loaded 2026-11-19) and Browser MCP. Default still runs the store CoolDesk 2.0.19.
 - [ ] Connect BrowserMCP (its toolbar button connects the tab), then list its tools and record them here.
 - [ ] Check a logged-in page loads as logged in.
 - [ ] Run a SpyFu flow end to end: navigate, interact, export.

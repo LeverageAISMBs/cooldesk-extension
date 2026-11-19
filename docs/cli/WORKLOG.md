@@ -123,3 +123,30 @@ Ran against CoolDesk v2.0.22 (`cooldesk.exe` pid 20028, sidecar :4545).
 - Verified: the updater URL compiled into the app (`releases/latest/download/latest.json`) serves our latest.json byte-for-byte. The installer downloads with HTTP 200 and the same size as the local build. The setup .sig is downloadable and identical.
 - master fast-forwarded to the launch tip and pushed.
 - Tooling note: midway through, foreground shells (Bash and PowerShell) began failing with no output. Background shells worked and were used from then on.
+
+## 2026-11-19 — session analysis (session 7b7b5da0, end of launch day)
+
+**Shipped:** P1→P5, P4 MCP, fork release channel, signed installer (now the daily app), release v2.0.22-cli.1, OPERATOR-GUIDE (passed a zero-context Haiku test, 6/6), DECISIONS, the generated reference, scrapling MCP registered with humanized scroll, P6 plan. The unpacked CoolDesk build (`dist/`) is now in Chrome Profile 1.
+
+**The diff between what went right and what went wrong** (the mechanism, not a tally):
+- **Right, every time:** a claim was checked against the running system before it went into a doc or a commit.
+  - Live round trips with restore-and-compare.
+  - A screenshot when the UI mattered.
+  - Mutation-testing the parity gate.
+  - The zero-context acceptance test.
+  - Byte-comparing the updater manifest at the URL baked into the app.
+- **Wrong, every time:** something was asserted from a model of the world instead of measured.
+  - The coverage count in a commit (H13).
+  - The key generated with `--ci` (H16).
+  - "150 passed" taken as stable (H17).
+  - The README's load-unpacked instruction copied as fact (H21).
+  - The anti-bot lecture: it asserted intent that wasn't there.
+- **Recurring tooling trap:** heredocs ate backslashes 3 times despite the saved memory. The fix is behavioral: any code or path containing `\` goes through Write/Edit or a script file, never a heredoc.
+- **Harness:** foreground shells failed mid-session; background shells worked (memory saved).
+
+**Loose ends for the next session:**
+- P6.0 (BrowserMCP in Profile 1, launched by CoolDesk).
+- Spaces "CLI guide check (safe to delete)" and "CLI Smoke Test", and 2 test terminal tabs, left for Mike.
+- The scrapling bridge needs starting each session, or an autostart.
+- The scrapling suite's feat/mcp-browser-scroll branch isn't pushed.
+- Headless `claude -p` test runs get indexed by the SessionEnd hook (noise in session search).

@@ -245,6 +245,66 @@ cli_commands! {
     clipboard_set_filters: Destructive, "Set what's skipped; skip_secrets=false starts recording passwords", { skip_secrets: bool, skip_kinds: Vec<String> } => |a| res(crate::clipboard::clipboard_set_filters(app()?, a.skip_secrets, a.skip_kinds));
     clipboard_remove: Destructive, "Delete a history item", { id: String } => |a| res(crate::clipboard::clipboard_remove(app()?, a.id));
     clipboard_clear: Destructive, "Delete clipboard history (pinned too if include_pinned)", { include_pinned: bool } => |a| res(crate::clipboard::clipboard_clear(app()?, a.include_pinned));
+
+    // ── P2.6 browser pane, web apps, highlights ──
+    // Panes are opened by the UI (they're placed inside a CoolDesk window);
+    // these act on an open pane by its id.
+    open_webapp_window: Act, "Open a URL as a standalone web-app window", { id: String, url: String, title: Option<String> } => |a| res(crate::open_webapp_window(app()?, a.id, a.url, a.title).await);
+    browser_pane_stats: Read, "Open panes with memory/CPU and blocked-request counts", {} => |a| val(crate::browser_pane::stats::browser_pane_stats(app()?).await);
+    browser_pane_adblock_supported: Read, "Whether this platform supports pane ad blocking", {} => |a| val(crate::browser_pane::browser_pane_adblock_supported());
+    site_permissions_get: Read, "Saved camera/mic/etc. permissions for a host", { host: String } => |a| val(crate::browser_pane::site_permissions_get(a.host));
+    page_dark_hosts: Read, "Hosts with forced dark mode", {} => |a| {
+        #[cfg(target_os = "macos")]
+        let r = crate::browser_pane::tools::page_dark_hosts(app()?);
+        #[cfg(not(target_os = "macos"))]
+        let r = crate::browser_pane::tools::page_dark_hosts();
+        val(r)
+    };
+    browser_pane_nav: Act, "Pane navigation: action = back | forward | reload", { id: String, action: String } => |a| res(crate::browser_pane::browser_pane_nav(app()?, a.id, a.action));
+    browser_pane_set_zoom: Act, "Set a pane's zoom factor", { id: String, zoom: f64 } => |a| res(crate::browser_pane::browser_pane_set_zoom(app()?, a.id, a.zoom));
+    browser_pane_set_adblock: Act, "Turn a pane's ad blocking on or off", { id: String, enabled: bool } => |a| res(crate::browser_pane::browser_pane_set_adblock(app()?, a.id, a.enabled));
+    browser_pane_stop_capture: Act, "Stop a pane's camera and/or microphone", { id: String, camera: bool, microphone: bool } => |a| res(crate::browser_pane::browser_pane_stop_capture(app()?, a.id, a.camera, a.microphone));
+    browser_pane_find: Act, "Find in page (step: 1 next, -1 previous, 0 clear)", { id: String, query: String, step: i32 } => |a| {
+        #[cfg(target_os = "macos")]
+        let r = crate::browser_pane::tools::browser_pane_find(app()?, a.id, a.query, a.step).await;
+        #[cfg(not(target_os = "macos"))]
+        let r = crate::browser_pane::tools::browser_pane_find(a.id, a.query, a.step);
+        res(r)
+    };
+    browser_pane_highlight_focus: Act, "Scroll a pane to a saved highlight", { id: String, highlight: String } => |a| {
+        #[cfg(target_os = "macos")]
+        let r = crate::browser_pane::tools::browser_pane_highlight_focus(app()?, a.id, a.highlight);
+        #[cfg(not(target_os = "macos"))]
+        let r = crate::browser_pane::tools::browser_pane_highlight_focus(a.id, a.highlight);
+        res(r)
+    };
+    browser_pane_set_dark: Act, "Force dark mode on a pane's site", { id: String, on: bool } => |a| {
+        #[cfg(target_os = "macos")]
+        let r = crate::browser_pane::tools::browser_pane_set_dark(app()?, a.id, a.on).await;
+        #[cfg(not(target_os = "macos"))]
+        let r = crate::browser_pane::tools::browser_pane_set_dark(a.id, a.on);
+        res(r)
+    };
+    browser_pane_screenshot: Act, "Screenshot a pane onto the shelf", { id: String } => |a| {
+        #[cfg(target_os = "macos")]
+        let r = crate::browser_pane::tools::browser_pane_screenshot(app()?, a.id).await;
+        #[cfg(not(target_os = "macos"))]
+        let r = crate::browser_pane::tools::browser_pane_screenshot(a.id);
+        res(r)
+    };
+    browser_pane_clip: Act, "Clip a pane's article onto the shelf", { id: String } => |a| {
+        #[cfg(target_os = "macos")]
+        let r = crate::browser_pane::tools::browser_pane_clip(app()?, a.id).await;
+        #[cfg(not(target_os = "macos"))]
+        let r = crate::browser_pane::tools::browser_pane_clip(a.id);
+        res(r)
+    };
+    site_permissions_set: Destructive, "Grant or revoke a host's camera/mic/etc. permissions", { host: String, settings: Value } => |a| res(crate::browser_pane::site_permissions_set(app()?, a.host, a.settings));
+    browser_pane_kill: Destructive, "Kill a pane's renderer", { id: String } => |a| res(crate::browser_pane::browser_pane_kill(app()?, a.id));
+    browser_pane_close: Destructive, "Close a pane", { id: String } => |a| res(crate::browser_pane::browser_pane_close(app()?, a.id));
+    highlights_list: Read, "Saved highlights and notes for a page URL", { url: String } => |a| val(crate::annotations::highlights_list(app()?, a.url));
+    highlights_update: Act, "Change a highlight's color or note", { url: String, id: String, color: Option<String>, note: Option<String> } => |a| res(crate::annotations::highlights_update(app()?, a.url, a.id, a.color, a.note));
+    highlights_delete: Destructive, "Delete a highlight", { url: String, id: String } => |a| res(crate::annotations::highlights_delete(app()?, a.url, a.id));
 }
 
 /// IPC commands deliberately not reachable from the CLI, with the reason.
@@ -258,6 +318,11 @@ pub const CLI_EXCLUDED: &[(&str, &str)] = &[
     ("take_terminal_run", "Spotlight's side of the run-in-terminal handoff; use spotlight_run_in_terminal"),
     ("dock_resize", "live drag resize driven by pointer events; use dock_set_size"),
     ("dock_set_bar_content_width", "layout measurement reported by the bar's own webview"),
+    ("browser_pane_open", "needs the calling webview's Window; a pane is placed inside it by the UI"),
+    ("browser_pane_set_bounds", "pane geometry follows the hosting window's layout"),
+    ("webapp_embed_open", "embedded into a CoolDesk window and positioned by its layout; use open_webapp_window"),
+    ("webapp_embed_set_bounds", "needs the calling webview's Window; layout-driven"),
+    ("webapp_embed_close", "pairs with webapp_embed_open"),
 ];
 
 pub fn specs() -> &'static [CommandSpec] {

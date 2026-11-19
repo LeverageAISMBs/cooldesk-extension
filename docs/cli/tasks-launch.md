@@ -9,8 +9,8 @@ Mike: "change the origin of the repo to our forked version, commit locally, then
 - [x] 4. Hand-written docs: `docs/cli/OPERATOR-GUIDE.md` (zero-context AI operator manual: terminal, browser, files, customization, widgets, safety, recipes, troubleshooting) and `docs/cli/DECISIONS.md` (architecture and engineering decisions with reasoning). Commit BEFORE any generated docs.
 - [x] 5. P5: `cooldesk docs` (a reference generated from the live manifest), `cooldesk completions <shell>`, `cooldesk batch` (NDJSON). Commit the generated reference separately.
 - [x] 6. Build the installer from source (`npm run build:tauri`, signed), install it, and run it as the daily app on 4545. Verify live: the CLI, MCP (full tool set now), the UI screenshot.
-- [ ] 7. Fast-forward the fork's master to the tip. Push all branches + master when auth is fixed.
-- [ ] 8. WORKLOG, hypothesis, memory.
+- [x] 7. Fast-forward the fork's master to the tip. Push all branches + master when auth is fixed.
+- [x] 8. WORKLOG, hypothesis, memory.
 
 ## Results (2026-11-19)
 - 1: crate and records in the repo (261faf9); the standalone copy archived in C:\Dev\_archive.

@@ -116,3 +116,10 @@ Ran against CoolDesk v2.0.22 (`cooldesk.exe` pid 20028, sidecar :4545).
 - Docs: OPERATOR-GUIDE (hand-written, verified live, passed a zero-context Haiku acceptance test, 6/6), DECISIONS (D1–D12), and the generated COMMAND-REFERENCE.
 - P5: docs, completions (PowerShell verified), batch. Git Bash path-rewrite guard in `raw`.
 - Known pre-existing flaky test: dir_watch::a_download_burst_is_one_update (2/4 failures on untouched code).
+
+## 2026-11-19 — LAUNCHED: release v2.0.22-cli.1
+- https://github.com/LeverageAISMBs/cooldesk-extension/releases/tag/v2.0.22-cli.1 (target master, not draft, not prerelease).
+  - Assets: NSIS setup + .sig, MSI + .sig, latest.json, cooldesk-cli exe.
+- Verified: the updater URL compiled into the app (`releases/latest/download/latest.json`) serves our latest.json byte-for-byte. The installer downloads with HTTP 200 and the same size as the local build. The setup .sig is downloadable and identical.
+- master fast-forwarded to the launch tip and pushed.
+- Tooling note: midway through, foreground shells (Bash and PowerShell) began failing with no output. Background shells worked and were used from then on.

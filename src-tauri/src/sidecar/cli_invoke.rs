@@ -232,6 +232,19 @@ cli_commands! {
     shelf_save_to: Act, "Move a shelf item into a folder (default Downloads); returns its path", { id: String, dest_dir: Option<String> } => |a| res(crate::shelf::shelf_save_to(app()?, a.id, a.dest_dir));
     shelf_remove: Destructive, "Delete a shelf item", { id: String } => |a| res(crate::shelf::shelf_remove(app()?, a.id));
     shelf_clear: Destructive, "Delete all shelf items (pinned too if include_pinned)", { include_pinned: bool } => |a| res(crate::shelf::shelf_clear(app()?, a.include_pinned));
+
+    // ── P2.5 clipboard history ──
+    clipboard_status: Read, "Clipboard history settings and state", {} => |a| val(crate::clipboard::clipboard_status());
+    clipboard_list: Read, "Clipboard history (previews)", {} => |a| res(crate::clipboard::clipboard_list(app()?));
+    clipboard_text: Read, "Full text of a clipboard history item", { id: String } => |a| res(crate::clipboard::clipboard_text(app()?, a.id));
+    clipboard_set_enabled: Act, "Turn clipboard history on or off", { enabled: bool } => |a| res(crate::clipboard::clipboard_set_enabled(app()?, a.enabled));
+    clipboard_set_paused: Act, "Pause or resume recording", { paused: bool } => |a| res(crate::clipboard::clipboard_set_paused(app()?, a.paused));
+    clipboard_copy: Act, "Put a history item back on the system clipboard (replaces what's there)", { id: String } => |a| res(crate::clipboard::clipboard_copy(app()?, a.id));
+    clipboard_pin: Act, "Pin or unpin a history item", { id: String, pinned: bool } => |a| res(crate::clipboard::clipboard_pin(app()?, a.id, a.pinned));
+    clipboard_save_to_shelf: Act, "Copy a history item onto the shelf", { id: String } => |a| res(crate::clipboard::clipboard_save_to_shelf(app()?, a.id));
+    clipboard_set_filters: Destructive, "Set what's skipped; skip_secrets=false starts recording passwords", { skip_secrets: bool, skip_kinds: Vec<String> } => |a| res(crate::clipboard::clipboard_set_filters(app()?, a.skip_secrets, a.skip_kinds));
+    clipboard_remove: Destructive, "Delete a history item", { id: String } => |a| res(crate::clipboard::clipboard_remove(app()?, a.id));
+    clipboard_clear: Destructive, "Delete clipboard history (pinned too if include_pinned)", { include_pinned: bool } => |a| res(crate::clipboard::clipboard_clear(app()?, a.include_pinned));
 }
 
 /// IPC commands deliberately not reachable from the CLI, with the reason.

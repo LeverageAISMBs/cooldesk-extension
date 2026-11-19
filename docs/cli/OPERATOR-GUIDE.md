@@ -220,6 +220,30 @@ There are two different browsers. Don't confuse them:
 
 **Highlights** (saved page highlights): `highlights_list {url}`, `highlights_update {url,id,color?,note?}`, `highlights_delete {url,id}` (destructive).
 
+**(c) Inside a page: click, type, scroll, read.** CoolDesk can't do this; its browser reach stops at tabs. Use the **Scrapling Agent Suite** bridge instead. It's an MCP server named `scrapling`, registered user-scope in Claude Code at `http://127.0.0.1:8765/mcp`. Input is **humanized by default**:
+- mouse moves along a jittered path to the target before clicking;
+- typing has human timing;
+- scrolling is split into uneven wheel steps with random 30–80 ms pauses.
+
+1. **Is the bridge running?** `curl -s http://127.0.0.1:8765/health`. If it isn't:
+   ```
+   cd C:\Dev\browser-extensions\scrapling-agent-suite\bridge-python && uv run scrapling-bridge
+   ```
+   Run it in the background; it serves on 127.0.0.1:8765.
+2. **Connect:** `browser_connect`.
+   - The default `mode:"persistent_profile"` launches **real Chrome** with the suite's login-once profile (`%LOCALAPPDATA%\ScraplingAgentSuite\BrowserProfile`). The user signs in there once, and the sessions persist.
+   - `mode:"attach_cdp", cdp_url:"http://127.0.0.1:9333"` drives the dedicated debugging Chrome instead.
+   - **Either way, this is a different Chrome instance from the user's everyday Chrome.** CoolDesk's `tabs` commands don't see its tabs, and its tools don't see CoolDesk's.
+3. **Act.** The tools:
+   - Tabs and navigation: `browser_navigate {url}`, `browser_list_tabs`, `browser_new_tab`, `browser_switch_tab`.
+   - Reading the page: `browser_map_dom` (interactive elements with selectors), `browser_screenshot {annotate}` (numbered element overlay), `browser_extract` (clean content).
+   - Input: `browser_click {selector, humanized}`, `browser_type {selector, text, press_enter, humanized}`, `browser_scroll {direction: down|up|left|right, amount: pixels, humanized}`.
+   - Other: `browser_auto_login` (password from the OS keyring, in memory only), `browser_status`.
+4. **Verify.** `browser_scroll` returns `scroll_before` and `scroll_after` measured from the page. `browser_click` returns the URL and `healed` (whether the selector had to be relocated). `browser_status` shows the active URL.
+   - Checked 2026-11-19: a scroll down 1200 gave y 0 → 1200; a click on example.com's link navigated to iana.org.
+
+**Typical combined flow:** use CoolDesk for the desktop (launch apps, terminals, files, the user's everyday tabs) and `scrapling` for anything inside a page.
+
 ### 6.4 Files and folders
 
 | Goal | Command |
@@ -362,6 +386,7 @@ An agent with browser automation can drive the new-tab page in Chrome directly. 
 
 - Open a CoolDesk terminal session directly and read its output stream. Open one with `spotlight_run_in_terminal`; read output through a file.
 - Open a new browser pane, or place panes and embedded web apps. They're positioned by the UI's layout.
+- Click, type, scroll or read inside web pages through CoolDesk. Use the `scrapling` MCP server for that (6.3 c).
 - Change widgets, or delete spaces, links, notes or pins. Only the UI can.
 - Run AI-CLI sessions inside CoolDesk (`ai_cli_run`): their output streams to the UI. Run the AI CLI directly.
 - The full list of excluded commands, with reasons: `$C commands` → `excluded`.

@@ -305,6 +305,25 @@ cli_commands! {
     highlights_list: Read, "Saved highlights and notes for a page URL", { url: String } => |a| val(crate::annotations::highlights_list(app()?, a.url));
     highlights_update: Act, "Change a highlight's color or note", { url: String, id: String, color: Option<String>, note: Option<String> } => |a| res(crate::annotations::highlights_update(app()?, a.url, a.id, a.color, a.note));
     highlights_delete: Destructive, "Delete a highlight", { url: String, id: String } => |a| res(crate::annotations::highlights_delete(app()?, a.url, a.id));
+
+    // ── P2.7 terminal ──
+    // Sessions belong to the CoolDesk window (webview label) that opened them.
+    // The CLI addresses one as (webview, id); terminal_list shows them.
+    terminal_list: Read, "Open terminal sessions: webview label, id, shell pid (CLI-only)", {} => |a| val(crate::terminal::session_list());
+    terminal_resize: Act, "Resize a terminal", { webview: String, id: String, cols: u16, rows: u16 } => |a| res(crate::terminal::terminal_resize(webview_by_label(&a.webview)?, a.id, a.cols, a.rows));
+    terminal_focus: Act, "Focus the terminal in a CoolDesk window (only if that window has focus)", { webview: String } => |a| res(crate::terminal::terminal_focus(webview_by_label(&a.webview)?));
+    terminal_write: Destructive, "Type into a terminal (send \"\\r\" to press Enter)", { webview: String, id: String, data: String } => |a| res(crate::terminal::terminal_write(webview_by_label(&a.webview)?, a.id, a.data));
+    terminal_close: Destructive, "Close a terminal and end its shell", { webview: String, id: String } => |a| res(crate::terminal::terminal_close(webview_by_label(&a.webview)?, a.id));
+}
+
+/// Commands the CLI has that aren't IPC commands (the parity test skips them).
+pub const CLI_ONLY: &[&str] = &["terminal_list"];
+
+fn webview_by_label(label: &str) -> Result<tauri::Webview, InvokeError> {
+    use tauri::Manager;
+    app()?
+        .get_webview(label)
+        .ok_or_else(|| InvokeError::Failed(format!("no CoolDesk webview labelled '{label}'")))
 }
 
 /// IPC commands deliberately not reachable from the CLI, with the reason.
@@ -323,6 +342,7 @@ pub const CLI_EXCLUDED: &[(&str, &str)] = &[
     ("webapp_embed_open", "embedded into a CoolDesk window and positioned by its layout; use open_webapp_window"),
     ("webapp_embed_set_bounds", "needs the calling webview's Window; layout-driven"),
     ("webapp_embed_close", "pairs with webapp_embed_open"),
+    ("terminal_open", "streams output over the opening webview's IPC Channel; use spotlight_run_in_terminal or run_project_command"),
 ];
 
 pub fn specs() -> &'static [CommandSpec] {

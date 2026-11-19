@@ -51,6 +51,21 @@ fn scoped(webview: &tauri::Webview, id: &str) -> String {
     format!("{}:{id}", webview.label())
 }
 
+/// Open sessions as `{webview, id, pid}`, so the CLI (`/cli/invoke terminal_list`)
+/// can address one with `terminal_write`. Read-only.
+pub fn session_list() -> Vec<serde_json::Value> {
+    let map = sessions().lock().unwrap();
+    let mut out: Vec<_> = map
+        .iter()
+        .map(|(key, s)| {
+            let (label, id) = key.split_once(':').unwrap_or(("", key.as_str()));
+            serde_json::json!({ "webview": label, "id": id, "pid": s.pid })
+        })
+        .collect();
+    out.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+    out
+}
+
 /// A window closed: end the shells its page started.
 pub fn close_window(label: &str) {
     let prefix = format!("{label}:");
